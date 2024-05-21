@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import os
 from skimage.transform import EuclideanTransform
 from skimage.measure import ransac
-import logging
 from datetime import datetime
 from sklearn.mixture import GaussianMixture
 import shutil

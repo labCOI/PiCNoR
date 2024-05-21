@@ -42,6 +42,7 @@ This Python script performs keypoint extraction, matching, and transformation be
 ### Example
 ```sh
 python main.py --type Pair --source path/to/source.jpg --target path/to/target.jpg --out path/to/output --color RGB --detector AKAZE --threshold 0.0001 --matcher L2 --nclusters 5 --save --show --fix
+```
 
 ### Project Structure
 .
