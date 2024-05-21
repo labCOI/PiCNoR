@@ -1,7 +1,7 @@
-# Keypoint Extraction and Image Registration Script
+# Automatic 3D Registration Method
 
 ## Description
-This Python script performs keypoint extraction, matching, and transformation between images. It supports processing both individual pairs of images and directories containing multiple images. The script uses various detectors and matchers to align and register images, and it allows customization of parameters such as the detector type, color scale, and the number of clusters.
+This Python script performs keypoint extraction, matching, and transformation between images. It supports processing both individual pairs of images and directories containing multiple images. The script uses SIFT or KAZE detectors and L2 or Hamming matchers to align and register images, and it allows customization of parameters such as the detector type, color scale, and the number of clusters.
 
 ## Installation
 1. Clone the repository to your local machine:
@@ -42,3 +42,10 @@ This Python script performs keypoint extraction, matching, and transformation be
 ### Example
 ```sh
 python main.py --type Pair --source path/to/source.jpg --target path/to/target.jpg --out path/to/output --color RGB --detector AKAZE --threshold 0.0001 --matcher L2 --nclusters 5 --save --show --fix
+
+### Project Structure
+.
+├── main.py        # The main script file
+├── utils.py       # Utility functions used in the script
+├── .gitignore     # Git ignore file
+└── README.md      # This README file
