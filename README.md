@@ -44,9 +44,20 @@ This Python script performs keypoint extraction, matching, and transformation be
 python main.py --type Pair --source path/to/source.jpg --target path/to/target.jpg --out path/to/output --color RGB --detector AKAZE --threshold 0.0001 --matcher L2 --nclusters 5 --save --show --fix
 ```
 
-### Project Structure
+## Project Structure
+```
 .
 ├── main.py        # The main script file
 ├── utils.py       # Utility functions used in the script
 ├── .gitignore     # Git ignore file
 └── README.md      # This README file
+```
+
+## Custom Directories
+The following directories are excluded from the repository using the `.gitignore` file Since they contained output images:
+- `DataCorrected/`
+- `DataWang/`
+- `Outputs/`
+
+## Logging
+The script generates a log file `script_log.log` in the specified output directory, which contains detailed logs of the processing steps and any issues encountered.
