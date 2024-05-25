@@ -32,9 +32,10 @@ This Python script performs keypoint extraction, matching, and transformation be
 - `--target`: Path to the target image.
 - `--out`: Path to the output folder.
 - `--color`: Color scale to use (`RGB` or `Gray`). Default is `RGB`.
-- `--detector`: Detector to use (`SIFT`, `AKAZE`). Default is `AKAZE`.
+- `--detector`: Detector to use (`SIFT`, `AKAZE`, `SUPER`). Default is `AKAZE`.
 - `--threshold`: Detector threshold. Default is `0.0001`.
-- `--matcher`: Matcher to use (`L2` or `Hamming`). Default is `L2`.
+- `--maxkps`: Superpoint Maximum number of features. Default is `2048`.
+- `--matcher`: Matcher to use (`L2`, `Hamming`, `Light`). Default is `L2`. (Use `SUPER` with `Light`)
 - `--nclusters`: Number of clusters.
 - `--save`: Save outputs (flag).
 - `--show`: Show outputs (flag).
