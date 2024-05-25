@@ -13,9 +13,10 @@ def main():
     parser.add_argument('-t', '--target', type=str, required=True, help='Path to the target image')
     parser.add_argument('-o', '--out', type=str, required=True, help='Path to the Output Folder')
     parser.add_argument('-c', '--color', type=str, required=False,default="RGB", help='RGB/Gray')
-    parser.add_argument('-d', '--detector', type=str, required=False, default="AKAZE", help='Detector: SIFT, AKAZE')
+    parser.add_argument('-d', '--detector', type=str, required=False, default="AKAZE", help='Detector: SIFT, AKAZE, SUPER')
     parser.add_argument('-th', '--threshold', type=float, required=False, default=0.0001, help='Detector Threshold')
-    parser.add_argument('-m', '--matcher', type=str, required=False,default="L2", help='Matcher: L2/Hamming')
+    parser.add_argument('-maxkps', '--maxkps', type=int, required=False, default=2048, help='Maximum Number of Keypoints (Only for superpoint)')
+    parser.add_argument('-m', '--matcher', type=str, required=False,default="L2", help='Matcher: L2, Hamming, Light')
     parser.add_argument('-n', '--nclusters', type=int, required=True, help="Number of Clusters")
     
     parser.add_argument('--save', action='store_false', help="Save Outputs")
@@ -44,13 +45,13 @@ def main():
                 colorScale=args.color,
                 detector=args.detector,
                 threshold=args.threshold,
+                maxkps=args.maxkps,
                 matcher=args.matcher,
                 nclusters=args.nclusters,
                 save=args.save,
                 fix= args.fix,
                 show=args.show,
-                logging = logging
-                )
+                logging = logging)
     elif args.type == "Dir":
         logging.info(f"Starting Directory Registration")
         stime = datetime.now()

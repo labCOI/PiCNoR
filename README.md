@@ -4,6 +4,7 @@
 This Python script performs keypoint extraction, matching, and transformation between images. It supports processing both individual pairs of images and directories containing multiple images. The script uses SIFT or KAZE detectors and L2 or Hamming matchers to align and register images, and it allows customization of parameters such as the detector type, color scale, and the number of clusters.
 
 ## Installation
+0. Be sure to install all requirements + [LightGlue]("https://github.com/cvg/LightGlue/tree/main")
 1. Clone the repository to your local machine:
     ```sh
     git clone <repository-url>

@@ -9,6 +9,9 @@ from sklearn.mixture import GaussianMixture
 import shutil
 from DCN import DCN
 
+from lightglue import LightGlue, SuperPoint, viz2d
+from lightglue.utils import rbd, numpy_image_to_torch, read_image
+import torch
 
 def overlay(im1,im2, alpha=0.5):
     im_out = np.zeros_like(im1)
@@ -17,7 +20,6 @@ def overlay(im1,im2, alpha=0.5):
     im_out[:,:,0] = im1
     im_out[:,:,1] = im2
     return im_out
-
 
 def findTransform(kp1,kp2):
     if type(kp1[0]) == cv2.KeyPoint:
@@ -103,7 +105,8 @@ def draw_inliers(img1, img2, kp1, kp2, mask, save, outFolder):
         plt.imsave(f"{outFolder}/inliers.jpg", inliers_image)
     plt.show(block=False)
 
-def regPair(source, target, outFolder, colorScale, detector, threshold, matcher, nclusters, save, fix, show, logging):
+
+def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, matcher, nclusters, save, fix, show, logging):
     logging.info(f"Registering{source} and {target}, saving {save}, output {outFolder}")
     # Loading Images
     source_image = loadImage(source, logging)
@@ -111,7 +114,11 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     source_image, target_image = changeImageColor(source_image, target_image, colorScale, logging)
     logging.info(f"images shape: {source_image.shape}, {target_image.shape}")
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(overlay(source_image, target_image))
         plt.title(f"Overlay Source , Target Images , ssd={ssd(source_image,target_image)}")
         plt.axis('off')
@@ -122,9 +129,14 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     elif detector == "AKAZE":
         logging.info(f"Initializing  {detector} with {threshold}")
         detector = cv2.AKAZE_create(threshold=threshold)
+    elif detector == "SUPER":
+        logging.info(f"Initializing  {detector} with {maxkps}")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)
+
     else:
         logging.error(f"Error: Undefined detector {detector}")
-        raise ValueError(f"Detector must be SIFT or AKAZE, but got {detector}") 
+        raise ValueError(f"Detector must be SIFT or AKAZE or SUPER, but got {detector}") 
     
     # Feature Extarction
     logging.info(f"Starting  Global registration")
@@ -132,19 +144,33 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     i1 = source_image.copy()
     i2 = target_image.copy()
     logging.info(f"SSD original image pairs: {ssd(i1,i2)}")
-    keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
-    keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
-    keypoints_image = np.hstack((cv2.drawKeypoints(i1,keypoints_source,i1),
-                                cv2.drawKeypoints(i2,keypoints_target,i2)))
-    if show:
-        plt.figure(figsize=(20,10))
-        plt.imshow(keypoints_image)
-        plt.title("All Keypoints in Source and Target Images")
-        plt.axis('off')
-        plt.show(block=False)
-    if save:
-        plt.imsave(f"{outFolder}/keypoints.jpg", keypoints_image)
 
+    if detector == "SUPER":     
+        image1 = numpy_image_to_torch(i1)
+        image2 = numpy_image_to_torch(i2)
+        feats1 = extractor.extract(image1.to(device))
+        feats2 = extractor.extract(image2.to(device))
+        f1, f2 = [
+            rbd(x) for x in [feats1, feats2]
+        ]
+        kp_temp = f1["keypoints"]
+        keypoints_source = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+        )
+        kp_temp = f2["keypoints"]
+        keypoints_target = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+        )
+    else:
+        keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
+        keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
+    if show:
+        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
+        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_keypoints([src_pts, dst_pts], ps=10)
+    if save:
+        viz2d.save_plot(f"{outFolder}/keypoints.jpg")
     # Matching
     if matcher =="L2":
         bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
@@ -152,18 +178,31 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     elif matcher == "Hamming":
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         logging.info(f"Matcher: {matcher}")
+    elif matcher == "Light":
+        lightmatcher = LightGlue(features="superpoint").eval().to(device)
+        logging.info(f"Matcher: {matcher}")
     else:
         logging.error(f"Error: Undefined mathcer {matcher}")
         raise ValueError(f"Matcher must be L2 or Hamming, but got {matcher}")
-    matches = bf.match(descriptors_source,descriptors_target)
-    matches = sorted(matches, key = lambda x:x.distance)
+    if matcher == "Light":
+        matches01 = lightmatcher({"image0": feats1, "image1": feats2})
+        matches01 = [
+            rbd(x) for x in [matches01]
+        ][0]
+        match_temp = matches01["matches"].numpy().copy()
+        matches = [
+            cv2.DMatch(_queryIdx=match[0],_trainIdx=match[1], _distance=1) for match in match_temp
+        ]
+    else:
+        matches = bf.match(descriptors_source,descriptors_target)
+        matches = sorted(matches, key = lambda x:x.distance)
     if show:
-        plt.figure(figsize=(20, 10))
-        draw_all_matches(source_image, target_image, matches, keypoints_source, keypoints_target, save, outFolder)
-        plt.title("All Matches between Source and Target Images")
-        plt.axis('off')
-        plt.show(block=False)
-
+        src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
+        dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_matches(src_pts, dst_pts, color="lime", lw=0.2)
+    if save:
+        viz2d.save_plot(f"{outFolder}/all_matches.jpg")
     logging.info(f"Number of Matched Keypoints: {len(matches)}")
     src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
     dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
@@ -174,16 +213,21 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     M = model_robust.params
     logging.info(f"Euclidean Transform found \n {M}\n inliers:{np.sum(inlierIndex)}")
     if show:
-
-        plt.figure(figsize=(20, 10))
-        draw_inliers(source_image.copy(), target_image.copy(), 
-                    keypoints_source, keypoints_target, inlierIndex, save, outFolder)
-        plt.title("Source and Target Images with Inlier Keypoints and Connecting Lines")
-        plt.axis('off')
-
+        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source, inlierIndex) if inlier]
+        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target, inlierIndex) if inlier]
+        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
+        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
+    if save:
+        viz2d.save_plot(f"{outFolder}/inliers.jpg")
     source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(source_transformed)
         plt.title("Source Transformed")
         plt.axis('off')
@@ -197,18 +241,21 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
         mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
         source_transformed[mask_inv_dilated == 255] = [255]
     if show:
-            plt.figure(figsize=(20,10))
+            ratios = [4 / 3]
+            figsize = [sum(ratios) * 4.5, 4.5]
+            fig, ax = plt.subplots(
+            1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+            )
             plt.imshow(source_transformed)
             plt.title("Source Transformed Fixed")
             plt.axis('off')
             plt.show(block=False)
     #Save
     plt.imsave(f"{outFolder}/SourceTransformed.jpg", source_transformed)
-    
     etime = datetime.now()
     if show:
-        plt.figure(figsize=(20,10))
-        plt.imshow(np.hstack((source_transformed,target_image)))
+        viz2d.plot_images([source_image,target_image])
+        # plt.imshow(np.hstack((source_transformed,target_image)))
         plt.title("Source Transformed + Target Image")
         plt.axis('off')
         plt.show(block=False)
@@ -216,21 +263,40 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     logging.info(f"SSD Globally registered image pairs: {ssd(source_image,target_image)}")
 
     logging.info(f"start time: {stime}\n final time: {etime}\n elapsed time: {(etime-stime).total_seconds()}")
-
     # Fine Registration
     logging.info(f"Starting Fine registration")
     source_image = source_transformed.copy()
     target_image = target_image.copy()
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(overlay(source_image, target_image))
         plt.title(f"Overlay Source Transformed , Target Image, ssd={ssd(source_image,target_image)}")
         plt.axis('off')
     i1 = source_image.copy()
     i2 = target_image.copy()
-    keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
-    keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
-    
+    if detector == "SUPER":    
+        image1 = numpy_image_to_torch(i1)
+        image2 = numpy_image_to_torch(i2)
+        feats1 = extractor.extract(image1.to(device))
+        feats2 = extractor.extract(image2.to(device))
+        f1, f2 = [
+            rbd(x) for x in [feats1, feats2]
+        ]
+        kp_temp = f1["keypoints"]
+        keypoints_source = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+        )
+        kp_temp = f2["keypoints"]
+        keypoints_target = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+        )
+    else:
+        keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
+        keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
     logging.info(f"Number of Clusters: {nclusters}")
     logging.info("Fitting GMM to keypoints")
     gmm = GaussianMixture(n_components=nclusters, random_state=0,covariance_type='full')
@@ -251,7 +317,11 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     for idx, center in enumerate(class_centers):
         cv2.circle(color_image, (center[1], center[0]), 10, (0,0,0), -1)
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(cv2.addWeighted(i1,0.2,color_image,0.8,0))
         plt.title("GMM Space overlayed")
         plt.axis('off')
@@ -259,7 +329,11 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     if save:
         plt.imsave(f"{outFolder}/GMM_overlay.jpg", color_image)
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(color_image)
         plt.title("GMM Space overlayed")
         plt.axis('off')
@@ -271,44 +345,145 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
         fig2 = plt.figure(figsize=(20,10))
     Transforms = []
     Transforms_DCN = []
-    for index, mask in enumerate(masks):
-        keypoints_source_mask, descriptors_source_mask = detector.detectAndCompute(source_image,mask)
-        keypoints_target_mask, descriptors_target_mask = detector.detectAndCompute(target_image,mask)
-        matches = bf.match(descriptors_source_mask,descriptors_target_mask)
-        matches = sorted(matches, key = lambda x:x.distance)
-        if show:
-            plt.figure(fig.number)
-            plt.subplot(nclusters//2 + 1,2, index+1)
-            draw_all_matches(source_image.copy(),target_image.copy(),matches,
-                            keypoints_source_mask, keypoints_target_mask, False, "")
-            plt.title(f"cluster {index} all matches")
-            plt.axis('off')
-        src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)
-        dst_pts_cluster = np.float32([ keypoints_target_mask[m.trainIdx].pt for m in matches ]).reshape(-1,2)
-        model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=2,
-                                    residual_threshold=9, max_trials=2000)
-        if show:
-            plt.figure(fig2.number)
-            plt.subplot(nclusters//2 + 1,2, index+1)
-            draw_inliers(source_image.copy(), target_image.copy(), 
-                        keypoints_source_mask, keypoints_target_mask, inlierIndex, False, outFolder)
-            plt.title(f"cluster {index} inliers")
-            plt.axis('off')
-        M = model_robust.params
-        Transforms.append(M)
-        Transforms_DCN.append(conv_DCN(np.linalg.inv(M)))
+    def add_batch_dimension(data: dict) -> dict:
+        """Add batch dimension to elements in data"""
+        return {
+            k: np.expand_dims(v, axis=0) if isinstance(v, np.ndarray) else
+            v.unsqueeze(0) if isinstance(v, torch.Tensor) else
+            [v] if isinstance(v, list) else
+            v
+            for k, v in data.items()
+        }
+    if detector == "SUPER":    
+        image1 = numpy_image_to_torch(i1)
+        image2 = numpy_image_to_torch(i2)
+        feats1 = extractor.extract(image1.to(device))
+        feats2 = extractor.extract(image2.to(device))
+        f1, f2 = [
+            rbd(x) for x in [feats1, feats2]
+        ]
+        keypoints_source = f1["keypoints"].numpy()
+        keypoints_target = f2["keypoints"].numpy()
+        descriptors_source = f1['descriptors'].numpy()
+        descriptors_target = f2['descriptors'].numpy()
 
-        logging.info(f"Cluster {index}:\n \
-                       Transform: {M} \n \
-                       inliers: {np.sum(inlierIndex)}")
-        
-    if show:
-        plt.figure(fig.number)  
-        plt.tight_layout()
-        plt.show(block=False)
-        plt.figure(fig2.number)
-        plt.tight_layout()
-        plt.show(block=False)
+        keypoints_indices_source = keypoints_source.astype(int)
+        keypoints_indices_target = keypoints_target.astype(int)
+        keypoints_source = f1["keypoints"]
+        keypoints_target = f2["keypoints"]
+        for index, mask in enumerate(masks):
+            height, width = mask.shape
+            
+            valid_indices = (keypoints_indices_source[:, 1] < height) & (keypoints_indices_source[:, 0] < width)
+            source_indices = valid_indices & (mask[keypoints_indices_source[:, 1], 
+                                                                           keypoints_indices_source[:, 0]] == 255)
+            source_feats = {}
+            source_feats["keypoints"] = f1["keypoints"][source_indices]
+            source_feats["keypoint_scores"] = f1["keypoint_scores"][source_indices]
+            source_feats["descriptors"] = f1["descriptors"][source_indices]
+            source_feats["image_size"] = f1["image_size"]
+            source_feats = add_batch_dimension(source_feats)
+            kp_temp = source_feats["keypoints"].numpy()[0]
+            keypoints_source_mask = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+            )
+
+            valid_indices = (keypoints_indices_target[:, 1] < height) & (keypoints_indices_target[:, 0] < width)
+            target_indices = valid_indices & (mask[keypoints_indices_target[:, 1], 
+                                                                           keypoints_indices_target[:, 0]] == 255)
+            target_feats = {}
+            target_feats["keypoints"] = f2["keypoints"][target_indices]
+            target_feats["keypoint_scores"] = f2["keypoint_scores"][target_indices]
+            target_feats["descriptors"] = f2["descriptors"][target_indices]
+            target_feats["image_size"] = f2["image_size"]
+            target_feats = add_batch_dimension(target_feats)
+            kp_temp = target_feats["keypoints"].numpy()[0]
+            keypoints_target_mask = tuple(
+            [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
+            )
+            
+
+            matches01 = lightmatcher({"image0": source_feats, "image1": target_feats})
+            matches01 = [
+            rbd(x) for x in [matches01]
+            ][0]
+            match_temp = matches01["matches"].numpy().copy()
+            matches = [
+            cv2.DMatch(_queryIdx=match[0],_trainIdx=match[1], _distance=1) for match in match_temp
+            ]
+            if show:
+                plt.figure(fig.number)
+                plt.subplot(nclusters//2 + 1,2, index+1)
+                draw_all_matches(source_image.copy(),target_image.copy(),matches,
+                                keypoints_source_mask, keypoints_target_mask, False, "")
+                plt.title(f"cluster {index} all matches")
+                plt.axis('off')
+            src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)
+            dst_pts_cluster = np.float32([ keypoints_target_mask[m.trainIdx].pt for m in matches ]).reshape(-1,2)
+            model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=2,
+                                        residual_threshold=9, max_trials=2000)
+            if show:
+                plt.figure(fig2.number)
+                plt.subplot(nclusters//2 + 1,2, index+1)
+                draw_inliers(source_image.copy(), target_image.copy(), 
+                            keypoints_source_mask, keypoints_target_mask, inlierIndex, False, outFolder)
+                plt.title(f"cluster {index} inliers")
+                plt.axis('off')
+            M = model_robust.params
+            Transforms.append(M)
+            Transforms_DCN.append(conv_DCN(np.linalg.inv(M)))
+
+            logging.info(f"Cluster {index}:\n \
+                        Transform: {M} \n \
+                        inliers: {np.sum(inlierIndex)}")
+            
+        if show:
+            plt.figure(fig.number)  
+            plt.tight_layout()
+            plt.show(block=False)
+            plt.figure(fig2.number)
+            plt.tight_layout()
+            plt.show(block=False)
+            
+    else:
+        for index, mask in enumerate(masks):
+            keypoints_source_mask, descriptors_source_mask = detector.detectAndCompute(source_image,mask)
+            keypoints_target_mask, descriptors_target_mask = detector.detectAndCompute(target_image,mask)
+            matches = bf.match(descriptors_source_mask,descriptors_target_mask)
+            matches = sorted(matches, key = lambda x:x.distance)
+            if show:
+                plt.figure(fig.number)
+                plt.subplot(nclusters//2 + 1,2, index+1)
+                draw_all_matches(source_image.copy(),target_image.copy(),matches,
+                                keypoints_source_mask, keypoints_target_mask, False, "")
+                plt.title(f"cluster {index} all matches")
+                plt.axis('off')
+            src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)
+            dst_pts_cluster = np.float32([ keypoints_target_mask[m.trainIdx].pt for m in matches ]).reshape(-1,2)
+            model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=2,
+                                        residual_threshold=9, max_trials=2000)
+            if show:
+                plt.figure(fig2.number)
+                plt.subplot(nclusters//2 + 1,2, index+1)
+                draw_inliers(source_image.copy(), target_image.copy(), 
+                            keypoints_source_mask, keypoints_target_mask, inlierIndex, False, outFolder)
+                plt.title(f"cluster {index} inliers")
+                plt.axis('off')
+            M = model_robust.params
+            Transforms.append(M)
+            Transforms_DCN.append(conv_DCN(np.linalg.inv(M)))
+
+            logging.info(f"Cluster {index}:\n \
+                        Transform: {M} \n \
+                        inliers: {np.sum(inlierIndex)}")
+            
+        if show:
+            plt.figure(fig.number)  
+            plt.tight_layout()
+            plt.show(block=False)
+            plt.figure(fig2.number)
+            plt.tight_layout()
+            plt.show(block=False)
 
     # Prob
     stime = datetime.now()
@@ -338,7 +513,11 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     etime = datetime.now()
     logging.info(f"Transforms Applied, time elapsed: {(etime-stime).total_seconds()}")
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(source_image_fineT)
         plt.title("Source Transformed (fine)")
         plt.axis('off')
@@ -352,7 +531,11 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
         mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
         source_image_fineT[mask_inv_dilated == 255] = [255]
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(source_image_fineT)
         plt.title("Source Transformed (fine) Fixed")
         plt.axis('off')
@@ -361,13 +544,17 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, matcher,
     plt.imsave(f"{outFolder}/SourceTransformed_fineT.jpg", source_image_fineT)
     
     if show:
-        plt.figure(figsize=(20,10))
-        plt.imshow(np.hstack((source_image_fineT,target_image)))
+        viz2d.plot_images([source_image_fineT,target_image])
+        # plt.imshow(np.hstack((source_image_fineT,target_image)))
         plt.title("Source Transformed (fine) + Target Image")
         plt.axis('off')
         plt.show(block=False)
     if show:
-        plt.figure(figsize=(20,10))
+        ratios = [4 / 3]
+        figsize = [sum(ratios) * 4.5, 4.5]
+        fig, ax = plt.subplots(
+        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+        )
         plt.imshow(overlay(source_image_fineT, target_image))
         plt.title(f"Overlay Source Transformed (fine) , Target Image, ssd={ssd(source_image_fineT,target_image)}")
         plt.axis('off')
@@ -390,3 +577,4 @@ def createFinalOutputs(sFolder, dFolder, nFiles):
         destination_file = os.path.join(dFolder, new_file_name)
         if os.path.isfile(source_file):
             shutil.copy2(source_file, destination_file)
+
