@@ -61,14 +61,20 @@ def main():
             if i == 0:
                 logging.info("Copying first slice")
                 shutil.copy2(os.path.join(args.source, filenames[i]), os.path.join(args.out,"final","0.jpg"))
-            file1 = filenames[i]
-            file2 = filenames[i + 1]
-            
-            file1_path = os.path.join(args.source, file1)
-            file2_path = os.path.join(args.source, file2)
-            
+
+                file1 = filenames[i]
+                file2 = filenames[i + 1]
+                
+                file1_path = os.path.join(args.source, file1)
+                file2_path = os.path.join(args.source, file2)
+                
+            else: 
+                file2 = filenames[i + 1]
+                file1_path = os.path.join(args.out, str(i),"SourceTransformed_fineT.jpg")
+                file2_path = os.path.join(args.source, file2)
+                
             logging.info(f"Processing pair: {file1_path} and {file2_path}")
-            dir = os.path.join(args.out, str(i))
+            dir = os.path.join(args.out, str(i+1))
             if not os.path.exists(dir):
                 os.makedirs(dir)
             regPair(source=file2_path,
@@ -79,6 +85,7 @@ def main():
                 threshold=args.threshold,
                 matcher=args.matcher,
                 nclusters=args.nclusters,
+                maxkps=args.maxkps,
                 save=args.save,
                 fix= args.fix,
                 show=args.show,
