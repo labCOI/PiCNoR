@@ -170,6 +170,10 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         viz2d.plot_images([source_image, target_image])
         viz2d.plot_keypoints([src_pts, dst_pts], ps=10)
     if save:
+        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
+        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_keypoints([src_pts, dst_pts], ps=10)
         viz2d.save_plot(f"{outFolder}/keypoints.jpg")
     # Matching
     if matcher =="L2":
@@ -202,6 +206,10 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         viz2d.plot_images([source_image, target_image])
         viz2d.plot_matches(src_pts, dst_pts, color="lime", lw=0.2)
     if save:
+        src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
+        dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_matches(src_pts, dst_pts, color="lime", lw=0.2)
         viz2d.save_plot(f"{outFolder}/all_matches.jpg")
     logging.info(f"Number of Matched Keypoints: {len(matches)}")
     src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
@@ -220,6 +228,12 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         viz2d.plot_images([source_image, target_image])
         viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
     if save:
+        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source, inlierIndex) if inlier]
+        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target, inlierIndex) if inlier]
+        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
+        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
+        viz2d.plot_images([source_image, target_image])
+        viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
         viz2d.save_plot(f"{outFolder}/inliers.jpg")
     source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
     if show:
@@ -559,6 +573,8 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         plt.title(f"Overlay Source Transformed (fine) , Target Image, ssd={ssd(source_image_fineT,target_image)}")
         plt.axis('off')
         plt.show(block=True)
+    else:
+        plt.close("all")
     if save:
         plt.imsave(f"{outFolder}/source_target_overlay.jpg", overlay(source_image_fineT, target_image))
     
