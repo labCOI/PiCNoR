@@ -1,0 +1,24 @@
+operation:
+  type: "Pair"  # Operation mode: "Pair" for pairwise or "Dir" for directory processing
+  source_image: "path/to/source/image.jpg"  # Path to the source image
+  target_image: "path/to/target/image.jpg"  # Path to the target image (if type is Pair)
+  output_folder: "path/to/output/folder"  # Path to the folder where results will be saved
+
+image_processing:
+  color_scale: "RGB"  # Color scale: "RGB" or "Gray"
+  detector_type: "AKAZE"  # Feature detector type: "SIFT", "AKAZE", "SUPER"
+  detector_threshold: 0.0001  # Threshold value for the detector
+  max_keypoints: 2048  # Maximum number of keypoints (specific to some detectors like SUPER)
+
+registration:
+  global: true
+  fine: true
+
+matching:
+  matcher_type: "L2"  # Matcher algorithm: "L2", "Hamming", "Light"
+  num_clusters: "auto"  # Number of clusters: "auto" or a specific number
+
+output_settings:
+  save_results: true  # Whether to save the output results
+  show_results: true  # Whether to display the output results
+  apply_fix: true  # Whether to apply a fixing step to the outputs

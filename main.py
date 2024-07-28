@@ -1,117 +1,92 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import argparse
-import logging
-from utils import *
 from datetime import datetime
 import os
 
-def main():
-    parser = argparse.ArgumentParser(description='Keypoint Extraction, Matching, and transformation')
-    parser.add_argument('-type', '--type', type=str, required=False, default="Pair", help='Pair/Dir')
-    parser.add_argument('-s', '--source', type=str, required=True, help='Path to the source image')
-    parser.add_argument('-t', '--target', type=str, required=True, help='Path to the target image')
-    parser.add_argument('-o', '--out', type=str, required=True, help='Path to the Output Folder')
-    parser.add_argument('-c', '--color', type=str, required=False,default="RGB", help='RGB/Gray')
-    parser.add_argument('-d', '--detector', type=str, required=False, default="AKAZE", help='Detector: SIFT, AKAZE, SUPER')
-    parser.add_argument('-th', '--threshold', type=float, required=False, default=0.0001, help='Detector Threshold')
-    parser.add_argument('-maxkps', '--maxkps', type=int, required=False, default=2048, help='Maximum Number of Keypoints (Only for superpoint)')
-    parser.add_argument('-m', '--matcher', type=str, required=False,default="L2", help='Matcher: L2, Hamming, Light')
-    parser.add_argument('-n', '--nclusters', type=str, required=False, default='auto', help="Number of Clusters (auto)")
-    
-    parser.add_argument('--save', action='store_false', help="Save Outputs")
-    parser.add_argument('--show', action='store_false', help="show Outputs")
-    parser.add_argument('--fix', action='store_false', help='fix Outputs')
+from utils import *
+from config import Config
+from customlogger import CustomFullLogger, CustomLogger
+from registration import regPair
 
-    args = parser.parse_args()
-    
+def main():
+    config = Config('default_config.yaml')
     #Output Folder
-    directory = args.out
+    directory = config.output_folder
     if not os.path.exists(directory):
         os.makedirs(directory)
-    log_file_path = os.path.join(directory, "script_log.log")
-
-    logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[
-                        logging.FileHandler(log_file_path, mode='w'),
-                        logging.StreamHandler()
-                    ])
-    if args.type == "Pair":
-        logging.info(f"Starting Pairwise Registration")
-        regPair(source=args.source,
-                target=args.target,
-                outFolder= args.out,
-                colorScale=args.color,
-                detector=args.detector,
-                threshold=args.threshold,
-                maxkps=args.maxkps,
-                matcher=args.matcher,
-                nclusters=args.nclusters,
-                save=args.save,
-                fix= args.fix,
-                show=args.show,
-                logging = logging)
-    elif args.type == "Dir":
+    full_logger  = CustomFullLogger(log_file=os.path.join(directory, "full_log.log"))
+    short_logger = CustomLogger(log_file=os.path.join(directory, "full_log.log"))
+    if config.type == "Pair":
+        full_logger.message("Starting Pairwise Registration")
+        regPair(source=config.source_image,
+                target=config.target_image,
+                outFolder=config.output_folder,
+                colorScale=config.color_scale,
+                detector=config.detector_type,
+                threshold=config.detector_threshold,
+                maxkps=config.max_keypoints,
+                matcher=config.matcher_type,
+                nclusters=config.num_clusters,
+                save=config.save_results,
+                fix=config.apply_fix,
+                show=config.show_results,
+                logger=(full_logger,short_logger))
+    elif config.type == "Dir":
         nclusters = None
-        logging.info(f"Starting Directory Registration")
+        full_logger.message(f"Starting Directory Registration")
         stime = datetime.now()
-        filenames = sorted(f for f in os.listdir(args.source))
-        os.makedirs(os.path.join(args.out,"final"), exist_ok=True)
+        filenames = sorted(f for f in os.listdir(config.source_image))
+        os.makedirs(os.path.join(config.output_folder,"final"), exist_ok=True)
         for i in range(len(filenames) - 1):
             if i == 0:
-                logging.info("Copying first slice")
-                shutil.copy2(os.path.join(args.source, filenames[i]), os.path.join(args.out,"final","0.jpg"))
+                full_logger.message("Copying first slice")
+                shutil.copy2(os.path.join(config.source_image, filenames[i]), os.path.join(config.output_folder, "final", "0.jpg"))
 
                 file1 = filenames[i]
                 file2 = filenames[i + 1]
                 
-                file1_path = os.path.join(args.source, file1)
-                file2_path = os.path.join(args.source, file2)
+                file1_path = os.path.join(config.source_image, file1)
+                file2_path = os.path.join(config.source_image, file2)
                 
             else: 
                 file2 = filenames[i + 1]
-                file1_path = os.path.join(args.out, str(i),"SourceTransformed_fineT.jpg")
-                file2_path = os.path.join(args.source, file2)
+                file1_path = os.path.join(config.output_folder, str(i),"SourceTransformed_fineT.jpg")
+                file2_path = os.path.join(config.source_image, file2)
                 
-            logging.info(f"Processing pair: {file1_path} and {file2_path}")
-            dir = os.path.join(args.out, str(i+1))
+            full_logger.message(f"Processing pair: {file1_path} and {file2_path}")
+            dir = os.path.join(config.output_folder, str(i+1))
             if not os.path.exists(dir):
                 os.makedirs(dir)
             if nclusters == None:
                 nclusters = regPair(source=file2_path,
-                    target=file1_path,
-                    outFolder= dir,
-                    colorScale=args.color,
-                    detector=args.detector,
-                    threshold=args.threshold,
-                    matcher=args.matcher,
-                    nclusters=args.nclusters,
-                    maxkps=args.maxkps,
-                    save=args.save,
-                    fix= args.fix,
-                    show=args.show,
-                    logging = logging
-                    )
+                                target=file1_path,
+                                outFolder=dir,
+                                colorScale=config.color_scale,
+                                detector=config.detector_type,
+                                threshold=config.detector_threshold,
+                                matcher=config.matcher_type,
+                                nclusters=config.num_clusters,
+                                maxkps=config.max_keypoints,
+                                save=config.save_results,
+                                fix=config.apply_fix,
+                                show=config.show_results,
+                                logger=(full_logger,short_logger))
             else:
                 _ = regPair(source=file2_path,
-                    target=file1_path,
-                    outFolder= dir,
-                    colorScale=args.color,
-                    detector=args.detector,
-                    threshold=args.threshold,
-                    matcher=args.matcher,
-                    nclusters=nclusters,
-                    maxkps=args.maxkps,
-                    save=args.save,
-                    fix= args.fix,
-                    show=args.show,
-                    logging = logging
-                    )
+                                target=file1_path,
+                                outFolder=dir,
+                                colorScale=config.color_scale,
+                                detector=config.detector_type,
+                                threshold=config.detector_threshold,
+                                matcher=config.matcher_type,
+                                nclusters=config.num_clusters,
+                                maxkps=config.max_keypoints,
+                                save=config.save_results,
+                                fix=config.apply_fix,
+                                show=config.show_results,
+                                logger=(full_logger,short_logger))
 
         etime = datetime.now()
-        logging.info(f"Whole Time: {(etime-stime).total_seconds()}")
-        logging.info("Creating final Folder")
-        createFinalOutputs(args.out, os.path.join(args.out,"final"), len(filenames))
+        full_logger.message(f"Whole Time: {(etime-stime).total_seconds()}")
+        full_logger.message("Creating final Folder")
+        createFinalOutputs(config.output_folder, os.path.join(config.output_folder,"final"), len(filenames))
 if __name__ == "__main__":
     main()
