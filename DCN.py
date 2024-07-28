@@ -1,9 +1,12 @@
 import numpy as np
+import copy
 
 class DCN:
     def __init__(self,p0,p1):
         self.p0 = p0
         self.p1 = p1
+    def copy(self):
+        return copy.deepcopy(self)
     def scalar_mult(self, w):
         return DCN(self.p0*w,self.p1*w)
     def conj(self):

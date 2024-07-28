@@ -6,12 +6,31 @@ from skimage.transform import EuclideanTransform
 from skimage.measure import ransac
 from datetime import datetime
 from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import NearestNeighbors
+from sklearn.metrics import silhouette_score
+
+from kneed import KneeLocator
+from itertools import combinations
+import networkx as nx
+
 import shutil
 from DCN import DCN
+import sys
+
+import hdbscan
+import seaborn as sns
 
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd, numpy_image_to_torch, read_image
 import torch
+
+from spectralnet import SpectralNet
+
+
+random_seed = 3
+np.random.seed(random_seed)
+torch.manual_seed(random_seed)
 
 def overlay(im1,im2, alpha=0.5):
     im_out = np.zeros_like(im1)
@@ -21,28 +40,6 @@ def overlay(im1,im2, alpha=0.5):
     im_out[:,:,1] = im2
     return im_out
 
-def findTransform(kp1,kp2):
-    if type(kp1[0]) == cv2.KeyPoint:
-        t_array = []
-        for k in kp1:
-            t_array.append([k.pt[0], k.pt[1]])
-        src_pts = np.float32(t_array).reshape(-1,2)
-        t_array = []
-        for k in kp2:
-            t_array.append([k.pt[0], k.pt[1]])
-        dst_pts = np.float32(t_array).reshape(-1,2)
-    else:
-        src_pts = kp1
-        dst_pts = kp2
-    if len(src_pts)>2:
-        model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=2,
-                                residual_threshold=9, max_trials=2000)
-        M = model_robust.params
-        # M, inlierIndex = cv2.estimateAffinePartial2D(src_pts, dst_pts, method = cv2.RANSAC, ransacReprojThreshold=9, confidence = 0.99, refineIters=0)
-        # M, inlierIndex = cv2.findHomography(srcPoints=src_pts, dstPoints=dst_pts, method = cv2.RANSAC, ransacReprojThreshold=1, confidence = 0.99)
-        return M, inlierIndex, True
-    else:
-        return None, None, False
 def draw_keypoints(img, keypoints, color=(0, 255, 255)):
     for kp in keypoints:
         x, y = kp.pt
@@ -87,6 +84,42 @@ def draw_all_matches(img1, img2, matches, keypoints1, keypoints2, save, outFolde
     plt.imshow(all_matches_image)
     if save:
         plt.imsave(f"{outFolder}/all_matches.jpg", all_matches_image)
+
+def euclidean_distance(point1, point2):
+    return np.sqrt(np.sum((np.array(point1) - np.array(point2))**2))
+
+def create_weighted_graph(points):
+    G = nx.Graph()
+    for i, point in enumerate(points):
+        G.add_node(i, pos=point)
+    for (i, point1), (j, point2) in combinations(enumerate(points), 2):
+        distance = euclidean_distance(point1, point2)
+        G.add_edge(i, j, weight=round(distance,3))
+    return G
+
+def grad2(v):
+    a = np.array([(v[i+1] + v[i-1] - 2*v[i]) for i in range(1,len(v)-1)])
+    return a
+
+def find_direct_neighbor(G, target_node):
+    neighbors = []
+    for neighbor in G.neighbors(target_node):
+        edge_weight = G[target_node][neighbor]['weight']
+        neighbors.append(([neighbor, 1 / edge_weight if edge_weight != 0 else float('inf')]))
+    return neighbors
+
+def visualize_entire_graph(G, size, show, save, outFolder):
+    pos = nx.get_node_attributes(G, 'pos')
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    if True:
+        plt.figure(figsize=(size[0],size[1]))
+        nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=700, font_size=12, font_weight='bold', edge_color='gray')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        if save:
+            plt.savefig(f"{outFolder}/graph.png")
+
+        plt.show(block=False)
+    
 def draw_inliers(img1, img2, kp1, kp2, mask, save, outFolder):
     source_inlier_keypoints = [kp for kp, inlier in zip(kp1, mask) if inlier]
     target_inlier_keypoints = [kp for kp, inlier in zip(kp2, mask) if inlier]
@@ -132,7 +165,7 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
     elif detector == "SUPER":
         logging.info(f"Initializing  {detector} with {maxkps}")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)
+        extractor = SuperPoint(max_num_keypoints=maxkps).eval().to(device)
 
     else:
         logging.error(f"Error: Undefined detector {detector}")
@@ -216,20 +249,22 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
     dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
     # Transform
     logging.info(f"Finding Euclidean Transform")
-    model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=2,
+    model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=3,
                                     residual_threshold=9, max_trials=2000)
     M = model_robust.params
     logging.info(f"Euclidean Transform found \n {M}\n inliers:{np.sum(inlierIndex)}")
+    keypoints_source_match = [keypoints_source[m.queryIdx] for m in matches]
+    keypoints_target_match = [keypoints_target[m.trainIdx] for m in matches]
     if show:
-        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source, inlierIndex) if inlier]
-        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target, inlierIndex) if inlier]
+        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source_match, inlierIndex) if inlier]
+        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target_match, inlierIndex) if inlier]
         src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
         dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
         viz2d.plot_images([source_image, target_image])
         viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
     if save:
-        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source, inlierIndex) if inlier]
-        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target, inlierIndex) if inlier]
+        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source_match, inlierIndex) if inlier]
+        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target_match, inlierIndex) if inlier]
         src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
         dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
         viz2d.plot_images([source_image, target_image])
@@ -311,25 +346,61 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
     else:
         keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
         keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
-    logging.info(f"Number of Clusters: {nclusters}")
-    logging.info("Fitting GMM to keypoints")
-    gmm = GaussianMixture(n_components=nclusters, random_state=0,covariance_type='full')
-    gmm.fit(np.float32([ k.pt for k in keypoints_source ]).reshape(-1,2))
-    logging.info("GMM fitting done")
-    logging.info(f"GMM means: {gmm.means_}")
-    
+    if nclusters != 'auto':
+        logging.info(f"Number of Clusters: {nclusters}")
+        logging.info("Fitting GMM to keypoints")
+        nclusters = int(nclusters)
+        gmm = GaussianMixture(n_components=nclusters, random_state=0,covariance_type='full', n_init=10, max_iter=500)
+        gmm.fit(np.float32([ k.pt for k in keypoints_source ]).reshape(-1,2))
+        logging.info("GMM fitting done")
+        logging.info(f"GMM means: {gmm.means_}")
+    else: 
+        logging.info(f"Finding the Optimum number of clusters")
+        data = np.float32([ k.pt for k in keypoints_source ]).reshape(-1,2)
+        n_components = np.arange(2, 20, 1)
+        bics = []
+        sils = []
+        for n in n_components:
+            gmm = GaussianMixture(n_components=n, random_state=0, covariance_type='full', n_init=10, max_iter=500)
+            gmm.fit(data)
+            bics.append(gmm.bic(data))
+            sils.append(silhouette_score(data,gmm.fit_predict(data)))
+        
+        max_curvature_idx = np.argmax(np.abs(grad2(bics)))
+        plt.figure(figsize=(10,6))
+        plt.plot(n_components,bics,'bo-',markersize=5)
+        plt.xlim([1,20])
+        plt.xticks(n_components)
+        plt.plot(n_components[max_curvature_idx+1], bics[max_curvature_idx+1], 'ro', markersize=7)
+        plt.savefig(f"{outFolder}/components.png")
+        plt.show(block=False)
+        nclusters = n_components[max_curvature_idx+1]
+        # nclusters = n_components[np.argmax(sils)]
+        logging.info(f"Optimal Cluster Numbers: {nclusters}")
+        logging.info("Fitting GMM to keypoints")
+        # gmm = GaussianMixture(n_components=nclusters, means_init=cluster_centers,  weights_init=np.ravel(np.ones([nclusters,1])/nclusters),
+        #                       random_state=0, covariance_type='full', n_init=10, max_iter=500)
+        gmm = GaussianMixture(n_components=nclusters,  weights_init=np.ravel(np.ones([nclusters,1])/nclusters),
+                              random_state=0, covariance_type='full', n_init=10, max_iter=500)
+        gmm.fit(data)
+        logging.info("GMM fitting done")
+        logging.info(f"GMM means: {gmm.means_}")
+
+    valid_centers = np.zeros([nclusters,1])
     height, width = i1.shape[:2]
     xs, ys = np.meshgrid(np.arange(width), np.arange(height))
     positions = np.column_stack([xs.flatten(), ys.flatten()])
-    colors = np.random.randint(100, 200, size=(nclusters, 3), dtype=np.uint8)
+    colors = np.random.randint(50, 230, size=(nclusters, 3), dtype=np.uint8)
     pred = gmm.predict(positions)
     predicted_image = pred.reshape(height, width)
     color_image = colors[predicted_image]
 
-    class_centers = np.array([np.mean(np.argwhere(predicted_image == i), axis=0) for i in range(nclusters)])
-    class_centers = class_centers.astype(int)
+    # class_centers = np.array([np.mean(np.argwhere(predicted_image == i), axis=0) for i in range(nclusters)])
+    # class_centers = class_centers.astype(int)
+    class_centers = gmm.means_
+
     for idx, center in enumerate(class_centers):
-        cv2.circle(color_image, (center[1], center[0]), 10, (0,0,0), -1)
+        cv2.circle(color_image, (int(center[0]), int(center[1])), 5, (0,0,0), -1)
     if show:
         ratios = [4 / 3]
         figsize = [sum(ratios) * 4.5, 4.5]
@@ -339,6 +410,14 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         plt.imshow(cv2.addWeighted(i1,0.2,color_image,0.8,0))
         plt.title("GMM Space overlayed")
         plt.axis('off')
+
+        legend_labels = [f'Cluster {i}' for i in range(nclusters)]
+        legend_colors = [colors[i] / 255 for i in range(nclusters)]
+        patches = [plt.plot([], [], marker="o", ms=10, ls="", mec=None,
+                            color=legend_colors[i], label="{:s}".format(legend_labels[i]))[0] for i in range(nclusters)]
+
+        plt.legend(handles=patches, loc='upper right', bbox_to_anchor=(1.15, 1))
+
         plt.show(block=False)
     if save:
         plt.imsave(f"{outFolder}/GMM_overlay.jpg", color_image)
@@ -349,6 +428,14 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
         1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
         )
         plt.imshow(color_image)
+
+        legend_labels = [f'Cluster {i}' for i in range(nclusters)]
+        legend_colors = [colors[i] / 255 for i in range(nclusters)]
+        patches = [plt.plot([], [], marker="o", ms=10, ls="", mec=None,
+                            color=legend_colors[i], label="{:s}".format(legend_labels[i]))[0] for i in range(nclusters)]
+
+        plt.legend(handles=patches, loc='upper right', bbox_to_anchor=(1.15, 1))
+
         plt.title("GMM Space overlayed")
         plt.axis('off')
         plt.show(block=False)
@@ -434,8 +521,22 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
                 plt.axis('off')
             src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)
             dst_pts_cluster = np.float32([ keypoints_target_mask[m.trainIdx].pt for m in matches ]).reshape(-1,2)
-            model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=2,
+            print(src_pts_cluster.shape, dst_pts_cluster.shape)
+            try:
+                model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=3,
                                         residual_threshold=9, max_trials=2000)
+                M = model_robust.params
+                valid_centers[index] = 1
+                if model_robust:
+                    M = model_robust.params
+                    valid_centers[index] = 1
+                else:
+                    M = np.eye(3)
+                    inlierIndex = [False * src_pts_cluster.shape[0]]
+            except ValueError as ve:
+                M = np.eye(3)
+                inlierIndex = [False * src_pts_cluster.shape[0]]
+
             if show:
                 plt.figure(fig2.number)
                 plt.subplot(nclusters//2 + 1,2, index+1)
@@ -443,10 +544,9 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
                             keypoints_source_mask, keypoints_target_mask, inlierIndex, False, outFolder)
                 plt.title(f"cluster {index} inliers")
                 plt.axis('off')
-            M = model_robust.params
+
             Transforms.append(M)
             Transforms_DCN.append(conv_DCN(np.linalg.inv(M)))
-
             logging.info(f"Cluster {index}:\n \
                         Transform: {M} \n \
                         inliers: {np.sum(inlierIndex)}")
@@ -474,8 +574,29 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
                 plt.axis('off')
             src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)
             dst_pts_cluster = np.float32([ keypoints_target_mask[m.trainIdx].pt for m in matches ]).reshape(-1,2)
-            model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=2,
-                                        residual_threshold=9, max_trials=2000)
+            try:
+                model_robust, inlierIndex = ransac((src_pts_cluster, dst_pts_cluster), EuclideanTransform, min_samples=3,
+                                            residual_threshold=9, max_trials=2000)
+                if model_robust:
+                    M = model_robust.params
+                    WW = 0.2
+                    valid_centers[index] = 1
+                    if (M[0,2]> source_image.shape[0]*WW):
+                        logging.info(f"Tx: {M[0,2]} too large")
+                        valid_centers[index] = 0
+                    if (M[1,2] > source_image.shape[1]*WW):
+                        logging.info(f"Ty: {M[1,2]} too large")
+                        valid_centers[index] = 0
+                    if (np.abs(np.arccos(M[0,0])) > np.pi/8):
+                        logging.info(f"Theta: {np.degrees(np.abs(np.arccos(M[0,0])))} too large")
+                        valid_centers[index] = 0
+                else:
+                    M = np.eye(3)
+                    inlierIndex = [False * src_pts_cluster.shape[0]]
+            except ValueError as ve:
+                M = np.eye(3)
+                inlierIndex = [False * src_pts_cluster.shape[0]]
+            
             if show:
                 plt.figure(fig2.number)
                 plt.subplot(nclusters//2 + 1,2, index+1)
@@ -483,14 +604,16 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
                             keypoints_source_mask, keypoints_target_mask, inlierIndex, False, outFolder)
                 plt.title(f"cluster {index} inliers")
                 plt.axis('off')
-            M = model_robust.params
+            
             Transforms.append(M)
             Transforms_DCN.append(conv_DCN(np.linalg.inv(M)))
 
             logging.info(f"Cluster {index}:\n \
                         Transform: {M} \n \
+                        Transform Par: ({M[0,2]},{M[1,2]},{np.degrees(np.abs(np.arccos(M[0,0])))}) \n \
                         inliers: {np.sum(inlierIndex)}")
-            
+        
+
         if show:
             plt.figure(fig.number)  
             plt.tight_layout()
@@ -498,6 +621,50 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
             plt.figure(fig2.number)
             plt.tight_layout()
             plt.show(block=False)
+    
+    # invalid transforms
+    # neigh = NearestNeighbors(n_neighbors=2)
+    # neigh.fit(class_centers)
+    # _, indices = neigh.kneighbors(class_centers)
+    # nearest_neighbors_indices = np.ravel(indices[:, 1:2])
+
+    # Test
+    # valid_centers[2] = 0
+
+    # for index, center in enumerate(class_centers):
+    #     if valid_centers[index] == 0:
+    #         logging.info(f"Cluster {index} is replaced by {nearest_neighbors_indices[index]}")
+    #         Transforms[index] = Transforms[nearest_neighbors_indices[index]].copy()
+    #         Transforms_DCN[index] = Transforms_DCN[nearest_neighbors_indices[index]].copy()
+
+    # invalid Transforms with graph whole nodes
+    # fixing Transforms, Transforms_DCN
+    fixed_Transforms = Transforms.copy()
+    fixed_Transforms_DCN = Transforms_DCN.copy()
+    if 0 in valid_centers:    
+        logging.info("Fixing Invalid Transforms")
+        points = np.array(class_centers)/np.array([source_image.shape[1],source_image.shape[0]])
+        
+        G = create_weighted_graph(points)
+        visualize_entire_graph(G, (10,(10*source_image.shape[0]/source_image.shape[1])), show, save,outFolder)
+
+        for index, center in enumerate(class_centers):
+            if valid_centers[index] == 0:
+                replacements = find_direct_neighbor(G, index)
+                correct_replacements = []
+                for i, r in enumerate(replacements):
+                    if valid_centers[r[0]] != 0:
+                        correct_replacements.append(replacements[i])
+                logging.info(f"Cluster {index} is replaced by valid neighbors: {[i for i,r in correct_replacements]}")
+                selected_Transforms = [Transforms_DCN[i] for i,r in correct_replacements]
+                weights = [r for i, r in correct_replacements]
+                weights = weights/sum(weights)
+                fixed_Transforms_DCN[index] = blend_DCN(selected_Transforms, weights)
+                fixed_Transforms[index] = fixed_Transforms_DCN[index].toTransform()
+        
+        for i in range(nclusters):
+            logging.info(f"cluster {i} \n{fixed_Transforms[i]}")
+
 
     # Prob
     stime = datetime.now()
@@ -506,7 +673,7 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
     probs = probs.reshape(height, width, -1)
     all_transforms = np.empty((height, width, 3, 3))
     def blend_and_transform(probabilities):
-        blended = blend_DCN(Transforms_DCN, probabilities)
+        blended = blend_DCN(fixed_Transforms_DCN, probabilities)
         return blended.toTransform()
     vectorized_blend_transform = np.vectorize(blend_and_transform, signature='(n)->(m,m)')
     all_transforms = vectorized_blend_transform(probs)
@@ -581,6 +748,7 @@ def regPair(source, target, outFolder, colorScale, detector, threshold, maxkps, 
     logging.info(f"SSD Fine registered image pairs: {ssd(source_image_fineT,target_image)}")
 
     logging.info(f"Fine registration Done")
+    return nclusters
 
 def createFinalOutputs(sFolder, dFolder, nFiles):
 
@@ -589,7 +757,7 @@ def createFinalOutputs(sFolder, dFolder, nFiles):
     for folder_name in range(nFiles):
         current_folder = os.path.join(sFolder, str(folder_name))
         source_file = os.path.join(current_folder, 'SourceTransformed_fineT.jpg')
-        new_file_name = f'{folder_name + 1}.jpg'
+        new_file_name = f'{folder_name}.jpg'
         destination_file = os.path.join(dFolder, new_file_name)
         if os.path.isfile(source_file):
             shutil.copy2(source_file, destination_file)

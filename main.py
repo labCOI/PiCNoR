@@ -17,7 +17,7 @@ def main():
     parser.add_argument('-th', '--threshold', type=float, required=False, default=0.0001, help='Detector Threshold')
     parser.add_argument('-maxkps', '--maxkps', type=int, required=False, default=2048, help='Maximum Number of Keypoints (Only for superpoint)')
     parser.add_argument('-m', '--matcher', type=str, required=False,default="L2", help='Matcher: L2, Hamming, Light')
-    parser.add_argument('-n', '--nclusters', type=int, required=True, help="Number of Clusters")
+    parser.add_argument('-n', '--nclusters', type=str, required=False, default='auto', help="Number of Clusters (auto)")
     
     parser.add_argument('--save', action='store_false', help="Save Outputs")
     parser.add_argument('--show', action='store_false', help="show Outputs")
@@ -53,6 +53,7 @@ def main():
                 show=args.show,
                 logging = logging)
     elif args.type == "Dir":
+        nclusters = None
         logging.info(f"Starting Directory Registration")
         stime = datetime.now()
         filenames = sorted(f for f in os.listdir(args.source))
@@ -77,20 +78,36 @@ def main():
             dir = os.path.join(args.out, str(i+1))
             if not os.path.exists(dir):
                 os.makedirs(dir)
-            regPair(source=file2_path,
-                target=file1_path,
-                outFolder= dir,
-                colorScale=args.color,
-                detector=args.detector,
-                threshold=args.threshold,
-                matcher=args.matcher,
-                nclusters=args.nclusters,
-                maxkps=args.maxkps,
-                save=args.save,
-                fix= args.fix,
-                show=args.show,
-                logging = logging
-                )
+            if nclusters == None:
+                nclusters = regPair(source=file2_path,
+                    target=file1_path,
+                    outFolder= dir,
+                    colorScale=args.color,
+                    detector=args.detector,
+                    threshold=args.threshold,
+                    matcher=args.matcher,
+                    nclusters=args.nclusters,
+                    maxkps=args.maxkps,
+                    save=args.save,
+                    fix= args.fix,
+                    show=args.show,
+                    logging = logging
+                    )
+            else:
+                _ = regPair(source=file2_path,
+                    target=file1_path,
+                    outFolder= dir,
+                    colorScale=args.color,
+                    detector=args.detector,
+                    threshold=args.threshold,
+                    matcher=args.matcher,
+                    nclusters=nclusters,
+                    maxkps=args.maxkps,
+                    save=args.save,
+                    fix= args.fix,
+                    show=args.show,
+                    logging = logging
+                    )
 
         etime = datetime.now()
         logging.info(f"Whole Time: {(etime-stime).total_seconds()}")
