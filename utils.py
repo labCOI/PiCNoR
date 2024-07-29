@@ -3,10 +3,14 @@ import cv2
 import matplotlib.pyplot as plt
 import matplotlib
 import os
+
+
 from itertools import combinations
 import networkx as nx
+
 import shutil
 from DCN import DCN
+
 
 
 
@@ -456,20 +460,6 @@ def blend_DCN(Cs,w) -> DCN:
     c_hat = sum(c_hat_temp)
     c_hat = c_hat/c_hat.norm()
     return c_hat
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
 
 
 def createFinalOutputs(sFolder, dFolder, nFiles):

@@ -1,9 +1,17 @@
 from utils import *
 import numpy as np
-import torch
 import cv2
 import sys
 from PlotViewer import PlotViewer
+
+from skimage.transform import EuclideanTransform
+from skimage.measure import ransac
+from datetime import datetime
+from sklearn.mixture import GaussianMixture
+
+from lightglue import LightGlue, SuperPoint, viz2d
+from lightglue.utils import rbd, numpy_image_to_torch, read_image
+import torch
 
 def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, globalreg, numtry, finereg,  
             valid_weight, matcher, nclusters, max_clusers, save, fix, show, logger):
