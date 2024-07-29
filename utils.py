@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import matplotlib
 import os
 from skimage.transform import EuclideanTransform
 from skimage.measure import ransac
@@ -22,6 +23,7 @@ from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd, numpy_image_to_torch, read_image
 import torch
 
+import time
 
 
 
@@ -80,39 +82,223 @@ def overlay(img1,img2):
     composite[..., 2] = img2_gray  # Blue channel
     return composite
 
-def images_overlay(source, target, show, save, saveName):
+def plot_image(img, save, saveAddress, fileName):
     """
-    show and save the overlay of source and target images
+    show and save an image
 
     Parameters:
-        source: source image.
-        target: target image.
-        save: boolean to allow saving.
-        saveName: file name for saving.
+        img: image,
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
 
     Returns:
-    None
+    Figure & Axes
     """
     ratios = [4 / 3]
     figsize = [sum(ratios) * 4.5, 4.5]
     fig, ax = plt.subplots(
     1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
     )
-    plt.imshow(overlay(source, target))
-    plt.axis('off')
+    ax.imshow(img)
+    ax.get_yaxis().set_ticks([])
+    ax.get_xaxis().set_ticks([])
+    ax.set_axis_off()
+    ax.set_title(fileName)  
     if save:
-        plt.savefig(f"{saveName}.png")
-    if not show:
-        plt.clf()
-    return
+        plt.imsave(f"{saveAddress}/{fileName}.png", img)
+    return fig, ax
+
+def plot_overlay(source, target, save, saveAddress, fileName):
+    """
+    show and save the overlay of source and target images
+
+    Parameters:
+        source: source image,
+        target: target image,
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
+
+    Returns:
+    Figure & Axes
+    """
+    ratios = [4 / 3]
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+    ov = overlay(source, target)
+    ax.imshow(ov)
+    ax.get_yaxis().set_ticks([])
+    ax.get_xaxis().set_ticks([])
+    ax.set_axis_off()
+    ax.set_title(fileName)  
+    if save:
+        plt.imsave(f"{saveAddress}/{fileName}.png", ov)
+    return fig, ax
+
+def plot_keypoints(images, keypoints, save, saveAddress, fileName, color='lime'):
+    """
+    show and save the images with their features
+
+    Parameters:
+        images: a tuple of two images,
+        keypoints: a tuple of two sets of feature points
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
+
+    Returns:
+    Figure & Axes
+    """
+    ratios = [4 / 3]*2
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 2, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+    # source image
+    ax[0].imshow(images[0])
+    ax[0].get_yaxis().set_ticks([])
+    ax[0].get_xaxis().set_ticks([])
+    ax[0].set_axis_off()
+    ax[0].set_title("source")    
+
+    #source keypoints
+    ax[0].scatter(keypoints[0][:, 0], keypoints[0][:, 1], c=color, s=4, linewidths=0, alpha=0.8)
+    
+    # target image
+    ax[1].imshow(images[1])
+    ax[1].get_yaxis().set_ticks([])
+    ax[1].get_xaxis().set_ticks([])
+    ax[1].set_axis_off()
+    ax[1].set_title("target")
+
+    # target keypoints
+    ax[1].scatter(keypoints[1][:, 0], keypoints[1][:, 1], c=color, s=4, linewidths=0, alpha=0.8)
+
+    fig.tight_layout()
+    fig.suptitle(fileName)
+
+    if save:
+        plt.savefig(f"{saveAddress}/{fileName}.png")
+    return fig, ax
+
+def plot_matches(images, keypoints, save, saveAddress, fileName, color='tomato'):
+    """
+    show and save the images with their matched features
+
+    Parameters:
+        images: a tuple of two images,
+        keypoints: a tuple of two sets of feature points
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
+
+    Returns:
+    Figure & Axes
+    """
+    ratios = [4 / 3]*2
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 2, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+
+    # source image
+    ax[0].imshow(images[0])
+    ax[0].get_yaxis().set_ticks([])
+    ax[0].get_xaxis().set_ticks([])
+    ax[0].set_axis_off()
+    ax[0].set_title("source")    
+
+    # source keypoints
+    ax[0].scatter(keypoints[0][:, 0], keypoints[0][:, 1], c=color, s=4, linewidths=0, alpha=0.8)
+    
+    # target image
+    ax[1].imshow(images[1])
+    ax[1].get_yaxis().set_ticks([])
+    ax[1].get_xaxis().set_ticks([])
+    ax[1].set_axis_off()
+    ax[1].set_title("target")
+
+    # target keypoints
+    ax[1].scatter(keypoints[1][:, 0], keypoints[1][:, 1], c=color, s=4, linewidths=0, alpha=0.8)
+
+    # drawing lines
+    for i in range(len(keypoints[0])):
+        line = matplotlib.patches.ConnectionPatch(
+                xyA=(keypoints[0][i, 0], keypoints[0][i, 1]),
+                xyB=(keypoints[1][i, 0], keypoints[1][i, 1]),
+                coordsA=ax[0].transData,
+                coordsB=ax[1].transData,
+                axesA=ax[0],
+                axesB=ax[1],
+                zorder=1,
+                color=color,
+                linewidth=0.4,
+                clip_on=True,
+                alpha=0.5,
+                label=None,
+                picker=5.0,
+            )
+        line.set_annotation_clip(True)
+        fig.add_artist(line)
+    fig.tight_layout()
+    fig.suptitle(fileName)
+
+    if save:
+        plt.savefig(f"{saveAddress}/{fileName}.png")
+    return fig, ax
+
+def plot_3image(images, save, saveAddress, fileName):
+    """
+    show and save the images with their features
+
+    Parameters:
+        images: a tuple of 3 images,
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
+
+    Returns:
+    Figure & Axes
+    """
+    ratios = [4 / 3]*3
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 3, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+
+    # source image
+    ax[0].imshow(images[0])
+    ax[0].get_yaxis().set_ticks([])
+    ax[0].get_xaxis().set_ticks([])
+    ax[0].set_axis_off()
+    ax[0].set_title("source")    
+
+    # source transformed image
+    ax[1].imshow(images[1])
+    ax[1].get_yaxis().set_ticks([])
+    ax[1].get_xaxis().set_ticks([])
+    ax[1].set_axis_off()
+    ax[1].set_title("source transformed")   
+    
+    # target image
+    ax[2].imshow(images[2])
+    ax[2].get_yaxis().set_ticks([])
+    ax[2].get_xaxis().set_ticks([])
+    ax[2].set_axis_off()
+    ax[2].set_title("target")
+
+    fig.tight_layout()
+    fig.suptitle(fileName)
+    if save:
+        plt.savefig(f"{saveAddress}/{fileName}.png")
+    return fig, ax
 
 
 
 
-def draw_keypoints(img, keypoints, color=(0, 255, 255)):
-    for kp in keypoints:
-        x, y = kp.pt
-        cv2.circle(img, (int(x), int(y)), color=color, radius=5, thickness=-1)
 def conv_DCN(M):
     p0 = np.sqrt( M[0,0] + M[1,0]*1j)
     p1 = (M[0,2] + M[1,2]*1j)/(2*p0)

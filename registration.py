@@ -3,9 +3,10 @@ import numpy as np
 import torch
 import cv2
 import sys
+from PlotViewer import PlotViewer
 
+def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, globalreg, numtry, finereg,  matcher, nclusters, save, fix, show, logger):
 
-def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, globalreg, finereg,  matcher, nclusters, save, fix, show, logger):
     """
     Load, Register and save a pair of images with Matched Features extracted from images
 
@@ -18,6 +19,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
         threshold: feature extraction threshold,
         maxkps: deep feature maximum number of features,
         globalreg: global registration,
+        numtry: number of tries for global transformation,
         finereg: fine registration,
         matcher: feature matching algorithm,
         nclusters: number of clusters for gaussian mixture,
@@ -31,18 +33,21 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
     Number of Used Clusters.
     """
 
+
+    viewer = PlotViewer()
     random_seed = 3
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
     full_logger = logger[0]
     short_logger = logger[1]
-    full_logger.message(f"Source Image: {source}:\n"
-            f"Target Image: {target}\n"
-            f"Saving in {outFolder}\n"
+    full_logger.message(f"Image Directories:\n"
+                        f"Source Image: {source}:\n"
+                        f"Target Image: {target}\n"
+                        f"Saving in {outFolder}"
     )
     short_logger.message(f"Source Image: {source}:\n"
-            f"Target Image: {target}\n"
-            f"Saving in {outFolder}\n"
+                         f"Target Image: {target}\n"
+                         f"Saving in {outFolder}"
     )
 
     # Loading Images
@@ -65,11 +70,12 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                        f"Target Shape: {target_image.shape}")
    
     # Initial Overlay
-    images_overlay(source=source_image,
+    fig, ax = plot_overlay(source=source_image,
                    target=target_image,
                    save=save,
-                   saveName="InitialOverlay")
-
+                   saveAddress=outFolder,
+                   fileName="InitialOverlay")
+    viewer.add_figure(fig)
 
     # Initializing Detector
     if detector == "SIFT":
@@ -85,20 +91,20 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
         short_logger.message(f"Initializing  {detector} with {maxkps}")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         extractor = SuperPoint(max_num_keypoints=maxkps).eval().to(device)
-
     else:
         full_logger.log_error(f"Error: Undefined detector {detector}")
-        sys.exit(1)
+        raise ValueError(f"Undefined detector {detector}")
     
     # Global Registration
     if globalreg:
+
         # Feature Extarction
         full_logger.message(f"Starting  Global registration")
         stime = datetime.now()
         i1 = source_image.copy()
         i2 = target_image.copy()
-        logger.message(f"SSD original image pairs: {ssd(i1,i2)}")
-
+        full_logger.message(f"SSD original image pairs: {ssd(i1,i2)}")
+        short_logger.message(f"SSD original image pairs: {ssd(i1,i2)}")
         if detector == "SUPER":     
             image1 = numpy_image_to_torch(i1)
             image2 = numpy_image_to_torch(i2)
@@ -118,122 +124,111 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
         else:
             keypoints_source, descriptors_source = detector.detectAndCompute(source_image,None)
             keypoints_target, descriptors_target = detector.detectAndCompute(target_image,None)
-        if show:
-            src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
-            dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
-            viz2d.plot_images([source_image, target_image])
-            viz2d.plot_keypoints([src_pts, dst_pts], ps=10)
-        if save:
-            src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
-            dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
-            viz2d.plot_images([source_image, target_image])
-            viz2d.plot_keypoints([src_pts, dst_pts], ps=10)
-            viz2d.save_plot(f"{outFolder}/keypoints.jpg")
-    #########################################
-    # Matching
-    if matcher =="L2":
-        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-        logging.info(f"Matcher: {matcher}")
-    elif matcher == "Hamming":
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        logging.info(f"Matcher: {matcher}")
-    elif matcher == "Light":
-        lightmatcher = LightGlue(features="superpoint").eval().to(device)
-        logging.info(f"Matcher: {matcher}")
-    else:
-        logging.error(f"Error: Undefined mathcer {matcher}")
-        raise ValueError(f"Matcher must be L2 or Hamming, but got {matcher}")
-    if matcher == "Light":
-        matches01 = lightmatcher({"image0": feats1, "image1": feats2})
-        matches01 = [
-            rbd(x) for x in [matches01]
-        ][0]
-        match_temp = matches01["matches"].numpy().copy()
-        matches = [
-            cv2.DMatch(_queryIdx=match[0],_trainIdx=match[1], _distance=1) for match in match_temp
-        ]
-    else:
-        matches = bf.match(descriptors_source,descriptors_target)
-        matches = sorted(matches, key = lambda x:x.distance)
-    if show:
-        src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
-        dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
-        viz2d.plot_images([source_image, target_image])
-        viz2d.plot_matches(src_pts, dst_pts, color="lime", lw=0.2)
-    if save:
-        src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
-        dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
-        viz2d.plot_images([source_image, target_image])
-        viz2d.plot_matches(src_pts, dst_pts, color="lime", lw=0.2)
-        viz2d.save_plot(f"{outFolder}/all_matches.jpg")
-    logging.info(f"Number of Matched Keypoints: {len(matches)}")
-    src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1
-    dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
-    # Transform
-    logging.info(f"Finding Euclidean Transform")
-    model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=3,
-                                    residual_threshold=9, max_trials=2000)
-    M = model_robust.params
-    logging.info(f"Euclidean Transform found \n {M}\n inliers:{np.sum(inlierIndex)}")
-    keypoints_source_match = [keypoints_source[m.queryIdx] for m in matches]
-    keypoints_target_match = [keypoints_target[m.trainIdx] for m in matches]
-    if show:
-        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source_match, inlierIndex) if inlier]
-        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target_match, inlierIndex) if inlier]
-        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
-        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
-        viz2d.plot_images([source_image, target_image])
-        viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
-    if save:
-        source_inlier_keypoints = [kp for kp, inlier in zip(keypoints_source_match, inlierIndex) if inlier]
-        target_inlier_keypoints = [kp for kp, inlier in zip(keypoints_target_match, inlierIndex) if inlier]
-        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in source_inlier_keypoints ]).reshape(-1,2) #i1
-        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in target_inlier_keypoints ]).reshape(-1,2) #i2
-        viz2d.plot_images([source_image, target_image])
-        viz2d.plot_matches(src_pts, dst_pts, color="tomato", lw=0.5)
-        viz2d.save_plot(f"{outFolder}/inliers.jpg")
-    source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
-    if show:
-        ratios = [4 / 3]
-        figsize = [sum(ratios) * 4.5, 4.5]
-        fig, ax = plt.subplots(
-        1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
-        )
-        plt.imshow(source_transformed)
-        plt.title("Source Transformed")
-        plt.axis('off')
-        plt.show(block=False)
+        full_logger.message(f"Number of Keypoints\n"
+                            f"Source Keypoints:{len(keypoints_source)}\n"
+                            f"Target Keypoints:{len(keypoints_target)}")
+        short_logger.message(f"Source Keypoints:{len(keypoints_source)}\n"
+                            f"Target Keypoints:{len(keypoints_target)}")
+        src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
+        dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
+        fig, ax = plot_keypoints(images=(i1,i2), 
+                                 keypoints=(src_pts, dst_pts), 
+                                 save=save, 
+                                 saveAddress=outFolder,
+                                 fileName="GlobalKeypoints")
+        viewer.add_figure(fig)
 
-    #Fixing Transformed image
-    if fix:
-        _, mask = cv2.threshold(source_transformed, 1, 255, cv2.THRESH_BINARY)
-        mask_inv = cv2.bitwise_not(mask)
-        kernel = np.ones((3, 3), np.uint8)
-        mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
-        source_transformed[mask_inv_dilated == 255] = [255]
-    if show:
-            ratios = [4 / 3]
-            figsize = [sum(ratios) * 4.5, 4.5]
-            fig, ax = plt.subplots(
-            1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
-            )
-            plt.imshow(source_transformed)
-            plt.title("Source Transformed Fixed")
-            plt.axis('off')
-            plt.show(block=False)
-    #Save
-    plt.imsave(f"{outFolder}/SourceTransformed.jpg", source_transformed)
-    etime = datetime.now()
-    if show:
-        viz2d.plot_images([source_image,target_image])
-        # plt.imshow(np.hstack((source_transformed,target_image)))
-        plt.title("Source Transformed + Target Image")
-        plt.axis('off')
-        plt.show(block=False)
-    logging.info(f"Global registration Done")
-    logging.info(f"SSD Globally registered image pairs: {ssd(source_image,target_image)}")
+        # Matching
+        if matcher in ["L2", "Hamming"]:
+            bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+            full_logger.message(f"Matcher: {matcher}")
+            short_logger.message(f"Matcher: {matcher}")
+            matches = bf.match(descriptors_source,descriptors_target)
+        elif matcher == "Light":
+            lightmatcher = LightGlue(features="superpoint").eval().to(device)
+            full_logger.message(f"Matcher: {matcher}")
+            short_logger.message(f"Matcher: {matcher}")
+            matches01 = lightmatcher({"image0": feats1, "image1": feats2})
+            matches01 = [
+                rbd(x) for x in [matches01]
+            ][0]
+            match_temp = matches01["matches"].numpy().copy()
+            matches = [
+                cv2.DMatch(_queryIdx=match[0],_trainIdx=match[1], _distance=1) for match in match_temp
+            ]
+        else:
+            full_logger.log_error(f"Error: Undefined mathcer {matcher}")
+            raise ValueError(f"Undefined mathcer {matcher}")   
+        full_logger.message(f"Matched Keypoints: {len(matches)}")
+        short_logger.message(f"Matched Keypoints: {len(matches)}")
+        src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1 
+        dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
+        fig, ax = plot_matches(images=(i1,i2),
+                               keypoints=(src_pts, dst_pts), 
+                               save=save, 
+                               saveAddress=outFolder,
+                               color='lime',
+                               fileName="GlobalMatches")
+        viewer.add_figure(fig)
 
-    logging.info(f"start time: {stime}\n final time: {etime}\n elapsed time: {(etime-stime).total_seconds()}")
+        # Global Transform
+        full_logger.message(f"Finding Global Transform")
+        for trynumber in range(numtry):
+            model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=3,
+                                            residual_threshold=9, max_trials=2000)
+            full_logger.message(f"Try Number {trynumber}, Inliers: {np.sum(inlierIndex)}")
+            if np.sum(inlierIndex) > 50:
+                break
+        else:
+            full_logger.log_error("Global Registration Failed")
+            short_logger.log_error("Global Registration Failed")
+            raise ValueError("Can not find Global Registration Transform")
+        
+        M = model_robust.params
+        full_logger.log_transform_info(-1, M, inlierIndex)
+        short_logger.log_transform_info(-1, M, inlierIndex)
+        src_pts = np.float32([kp for kp, inlier in zip(src_pts, inlierIndex) if inlier]).reshape(-1,2) #i1 
+        dst_pts = np.float32([kp for kp, inlier in zip(dst_pts, inlierIndex) if inlier]).reshape(-1,2) #i1 
+        fig, ax = plot_matches(images=(i1,i2),
+                               keypoints=(src_pts, dst_pts), 
+                               save=save, 
+                               saveAddress=outFolder,
+                               color='tomato',
+                               fileName="GlobalInliers")
+        viewer.add_figure(fig)
+
+        # Applying Global Transform
+        source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
+        if fix:
+            _, mask = cv2.threshold(source_transformed, 1, 255, cv2.THRESH_BINARY)
+            mask_inv = cv2.bitwise_not(mask)
+            kernel = np.ones((3, 3), np.uint8)
+            mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
+            source_transformed[mask_inv_dilated == 255] = [255]
+        fig, ax = plot_image(img=source_transformed, 
+                             save=save,
+                             saveAddress=outFolder,
+                             fileName="SourceTransformed")
+        etime = datetime.now()
+        fig, ax = plot_3image(images=(source_image,source_transformed, target_image),
+                              save=False,
+                              saveAddress=outFolder,
+                              fileName="SourceTarget")
+        viewer.add_figure(fig)
+        fig, ax = plot_overlay(source=source_transformed,
+                               target=target_image,
+                               save=False,
+                               saveAddress=outFolder,
+                               fileName="GlobalOverlay")
+        viewer.add_figure(fig)
+        full_logger.message(f"Global registration Done")
+        full_logger.info(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
+                         f"elapsed time: {(etime-stime).total_seconds()}")
+        short_logger.info(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
+                          f"elapsed time: {(etime-stime).total_seconds()}")
+        
+        viewer.mainloop()
+        return 1
     # Fine Registration
     logging.info(f"Starting Fine registration")
     source_image = source_transformed.copy()

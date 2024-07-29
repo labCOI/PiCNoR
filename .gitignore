@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 .DS_Store
 test.ipynb
+t.py
+
 
 # Distribution / packaging
 *.egg-info/
@@ -27,3 +29,4 @@ DataCorrected/
 DataWang/
 Outputs/
 Brain2/
+NewOutputs/

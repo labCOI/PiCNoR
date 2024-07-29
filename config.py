@@ -22,13 +22,14 @@ class Config:
         # Registration settings
         registration = config.get('registration', {})
         self.global_registration = registration.get('global', True)
+        self.num_try = registration.get('retry_numbers', 10)
         self.fine_registration = registration.get('fine', True)
+        self.num_clusters = registration.get('num_clusters', 'auto')
 
         # Matching settings
         matching = config.get('matching', {})
         self.matcher_type = matching.get('matcher_type', 'L2')
-        self.num_clusters = matching.get('num_clusters', 'auto')
-
+        
         # Output settings
         output_settings = config.get('output_settings', {})
         self.save_results = output_settings.get('save_results', True)

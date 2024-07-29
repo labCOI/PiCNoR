@@ -5,15 +5,22 @@ from utils import *
 from config import Config
 from customlogger import CustomFullLogger, CustomLogger
 from registration import regPair
+import argparse
 
 def main():
-    config = Config('default_config.yaml')
+    parser = argparse.ArgumentParser(description='Run the image registration pipeline with a specified config file.')
+    parser.add_argument('-c', '--config', type=str, default='default_config.yaml', help='Path to the configuration file.')
+    args = parser.parse_args()
+
+    # Load configuration
+    config = Config(args.config)
+
     #Output Folder
     directory = config.output_folder
     if not os.path.exists(directory):
         os.makedirs(directory)
-    full_logger  = CustomFullLogger(log_file=os.path.join(directory, "full_log.log"))
-    short_logger = CustomLogger(log_file=os.path.join(directory, "full_log.log"))
+    full_logger  = CustomFullLogger(name="",log_file=os.path.join(directory, "full_log.log"))
+    short_logger = CustomLogger(name="",log_file=os.path.join(directory, "short_log.log"))
     if config.type == "Pair":
         full_logger.message("Starting Pairwise Registration")
         regPair(source=config.source_image,
@@ -23,6 +30,9 @@ def main():
                 detector=config.detector_type,
                 threshold=config.detector_threshold,
                 maxkps=config.max_keypoints,
+                globalreg=config.global_registration,
+                numtry=config.num_try,
+                finereg=config.fine_registration,
                 matcher=config.matcher_type,
                 nclusters=config.num_clusters,
                 save=config.save_results,

@@ -7,6 +7,7 @@ class CustomLogger(logging.Logger):
         super().__init__(name, level)
         self.log_file = log_file
         self.setup()
+
     def setup(self):
 
         file_handler = logging.FileHandler(self.log_file,  mode='w')
@@ -23,6 +24,7 @@ class CustomLogger(logging.Logger):
             msg (str): The message to log.
         """
         self.info(msg)
+
     def log_error(self, msg, exc_info=True):
         """
         Log an error message with optional exception information.
@@ -36,20 +38,24 @@ class CustomLogger(logging.Logger):
         else:
             self.error(msg)
 
-    def log_matrix_info(self, index, M, inlierIndex):
+    def log_transform_info(self, index, M, inlierIndex):
         np.set_printoptions(precision=3, suppress=True, linewidth=100)
         
-        M_formatted = np.array2string(M, formatter={'float_kind':lambda x: f"{x:10.5f}"})
         tx, ty = M[0, 2], M[1, 2]
         rotation = np.degrees(np.abs(np.arccos(M[0, 0])))
-
-        log_message = (
-            f"Cluster {index}:\n"
-            f"  Transform Matrix:\n{M_formatted}\n"
-            f"  Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
-            f"  Inliers: {np.sum(inlierIndex)}"
-        )
+        if index != -1:
+            log_message = (
+                f"\nCluster {index}:\n"
+                f"Global Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
+                f"Inliers: {np.sum(inlierIndex)}"
+            )
+        else:
+            log_message = (
+                f"Global Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
+                f"Inliers: {np.sum(inlierIndex)}"
+            )
         self.info(log_message)
+
 
 class CustomFullLogger(logging.Logger):
     def __init__(self, name, log_file, level=logging.INFO):
@@ -93,17 +99,23 @@ class CustomFullLogger(logging.Logger):
         else:
             self.error(msg)
 
-    def log_matrix_info(self, index, M, inlierIndex):
+    def log_transform_info(self, index, M, inlierIndex):
         np.set_printoptions(precision=3, suppress=True, linewidth=100)
         
         M_formatted = np.array2string(M, formatter={'float_kind':lambda x: f"{x:10.5f}"})
         tx, ty = M[0, 2], M[1, 2]
         rotation = np.degrees(np.abs(np.arccos(M[0, 0])))
-
-        log_message = (
-            f"Cluster {index}:\n"
-            f"  Transform Matrix:\n{M_formatted}\n"
-            f"  Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
-            f"  Inliers: {np.sum(inlierIndex)}"
-        )
+        if index != -1:
+            log_message = (
+                f"Cluster {index}:\n"
+                f"Transform Matrix:\n{M_formatted}\n"
+                f"Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
+                f"Inliers: {np.sum(inlierIndex)}"
+            )
+        else:
+            log_message = (
+                f"Global Transform Matrix:\n{M_formatted}\n"
+                f"Transform Parameters: (tx={tx:.5f}, ty={ty:.5f}, rotation={rotation:.5f} degrees)\n"
+                f"Inliers: {np.sum(inlierIndex)}"
+            )
         self.info(log_message)

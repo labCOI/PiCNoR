@@ -1,8 +1,8 @@
 operation:
   type: "Pair"  # Operation mode: "Pair" for pairwise or "Dir" for directory processing
-  source_image: "path/to/source/image.jpg"  # Path to the source image
-  target_image: "path/to/target/image.jpg"  # Path to the target image (if type is Pair)
-  output_folder: "path/to/output/folder"  # Path to the folder where results will be saved
+  source_image: "1.jpg"  # Path to the source image
+  target_image: "2.jpg"  # Path to the target image (if type is Pair)
+  output_folder: "NewOutputs/test/"  # Path to the folder where results will be saved
 
 image_processing:
   color_scale: "RGB"  # Color scale: "RGB" or "Gray"
@@ -11,13 +11,14 @@ image_processing:
   max_keypoints: 2048  # Maximum number of keypoints (specific to some detectors like SUPER)
 
 registration:
-  global: true
-  fine: true
+  global: true # Register Globally
+  retry_numbers: 10 # Number of retries if Global Registration failed
+  fine: true # Register with clusters
+  num_clusters: "auto"  # Number of clusters: "auto" or a specific number
 
 matching:
   matcher_type: "L2"  # Matcher algorithm: "L2", "Hamming", "Light"
-  num_clusters: "auto"  # Number of clusters: "auto" or a specific number
-
+  
 output_settings:
   save_results: true  # Whether to save the output results
   show_results: true  # Whether to display the output results
