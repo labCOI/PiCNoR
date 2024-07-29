@@ -25,6 +25,8 @@ class Config:
         self.num_try = registration.get('retry_numbers', 10)
         self.fine_registration = registration.get('fine', True)
         self.num_clusters = registration.get('num_clusters', 'auto')
+        self.valid_weight = registration.get('valid_range_weight', 0.5)
+        self.max_clusters = registration.get('max_clusters', 20)
 
         # Matching settings
         matching = config.get('matching', {})

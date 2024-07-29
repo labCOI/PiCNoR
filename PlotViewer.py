@@ -10,7 +10,7 @@ matplotlib.use('TkAgg')
 class PlotViewer(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Matplotlib Figure Viewer")
+        self.title("Figure Viewer")
         self.geometry("800x600")
         self.figures = []
         self.index = -1

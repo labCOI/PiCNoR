@@ -3,27 +3,10 @@ import cv2
 import matplotlib.pyplot as plt
 import matplotlib
 import os
-from skimage.transform import EuclideanTransform
-from skimage.measure import ransac
-from datetime import datetime
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import silhouette_score
-
 from itertools import combinations
 import networkx as nx
-
 import shutil
 from DCN import DCN
-
-import seaborn as sns
-
-from lightglue import LightGlue, SuperPoint, viz2d
-from lightglue.utils import rbd, numpy_image_to_torch, read_image
-import torch
-
-import time
 
 
 
@@ -82,7 +65,7 @@ def overlay(img1,img2):
     composite[..., 2] = img2_gray  # Blue channel
     return composite
 
-def plot_image(img, save, saveAddress, fileName):
+def plot_image(img, save, saveAddress, fileName, patches=None):
     """
     show and save an image
 
@@ -104,7 +87,9 @@ def plot_image(img, save, saveAddress, fileName):
     ax.get_yaxis().set_ticks([])
     ax.get_xaxis().set_ticks([])
     ax.set_axis_off()
-    ax.set_title(fileName)  
+    ax.set_title(fileName)
+    if patches:
+        fig.legend(handles=patches[1], labels=patches[0], loc='upper right', bbox_to_anchor=(1.15, 1))
     if save:
         plt.imsave(f"{saveAddress}/{fileName}.png", img)
     return fig, ax
@@ -296,14 +281,17 @@ def plot_3image(images, save, saveAddress, fileName):
         plt.savefig(f"{saveAddress}/{fileName}.png")
     return fig, ax
 
+def ssd(image1, image2):
+    """
+    calculates sum of square differences for two images
 
+    Parameters:
+        image1: first image,
+        image2: second image
 
-
-def conv_DCN(M):
-    p0 = np.sqrt( M[0,0] + M[1,0]*1j)
-    p1 = (M[0,2] + M[1,2]*1j)/(2*p0)
-    return DCN(p0,p1)
-def ssd(image1, image2) -> float:
+    Returns:
+    SSD of inputs
+    """
     if image1.shape != image2.shape:
         raise ValueError("Images must have the same shape.")
     image1_normalized = cv2.normalize(image1, None, 0, 1.0,cv2.NORM_MINMAX, dtype=cv2.CV_32F)
@@ -311,20 +299,115 @@ def ssd(image1, image2) -> float:
     squared_differences = np.square(image1_normalized - image2_normalized)
     ssd_error = np.sum(squared_differences)
     return ssd_error
-def blend_DCN(Cs,w) -> DCN:
-    c_hat_temp = [ci.scalar_mult(wi) for wi,ci in zip(w,Cs)]
-    c_hat = sum(c_hat_temp)
-    c_hat = c_hat/c_hat.norm()
-    return c_hat
 
+def grad2(v):
+    """
+    calculates second order derivative of the input vector
 
-def draw_all_matches(img1, img2, matches, keypoints1, keypoints2, save, outFolder):
+    Parameters:
+        v: Vector
 
-    all_matches_image = cv2.drawMatches(img1, keypoints1, img2, keypoints2, matches, 
-                                        None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    plt.imshow(all_matches_image)
+    Returns:
+    Vector of gradients
+    """
+    a = np.array([(v[i+1] + v[i-1] - 2*v[i]) for i in range(1,len(v)-1)])
+    return a
+
+def plot_bics(n_vector,bic_vector, bic_grad_vector, index, save, saveAddress, fileName):
+    """
+    show and save BIC vectors with its gradient
+
+    Parameters:
+        n_vector: x-axis vector,
+        bic_vector: vector containing bic values,
+        bic_grad_vector: vector containing bic gradient values,
+        save: boolean to allow saving,
+        saveAddress: saving directory,
+        fileName: file name for saving
+
+    Returns:
+    Figure & Axes
+    """
+    ratios = [4 / 3]*2
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 2, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+    # BIC
+    ax[0].plot(n_vector,bic_vector,'bo-',markersize=5)
+    ax[0].set_xlim([1, 20])
+    ax[0].get_xaxis().set_ticks(n_vector)
+    ax[0].set_title("BIC")    
+    ax[0].plot(n_vector[index+1], bic_vector[index+1], 'ro', markersize=7)
+    
+    # BIC Grad
+    ax[1].plot(n_vector[1:-1],bic_grad_vector,'go-',markersize=3)
+    ax[1].set_xlim([1, 20])
+    ax[1].get_xaxis().set_ticks(n_vector)
+    ax[1].set_title("BIC 2nd order gradient")    
+    ax[1].plot(n_vector[1:-1][index], bic_grad_vector[index], 'ro', markersize=5)
+
+    fig.tight_layout()
+    fig.suptitle(fileName)
+
     if save:
-        plt.imsave(f"{outFolder}/all_matches.jpg", all_matches_image)
+        plt.savefig(f"{saveAddress}/{fileName}.png")
+    return fig, ax
+
+def plot_gmm_map(img,nclusters, gmm, img_sz):
+    """
+    show and save gmm areas
+
+    Parameters:
+        img: original image
+        nclusters: number of clusters,
+        gmm: Fitted Gaussian Mixture Model,
+        img_sz: tuple containing image height and width,
+
+    Returns:
+    GMM map and GMM mask
+    """
+    height, width = img_sz[:2]
+    xs, ys = np.meshgrid(np.arange(width), np.arange(height))
+    positions = np.column_stack([xs.flatten(), ys.flatten()])
+    colors = np.random.randint(50, 230, size=(nclusters, 3), dtype=np.uint8)
+    pred = gmm.predict(positions)
+    predicted_image = pred.reshape(height, width)
+    masks = [(predicted_image == i).astype(np.uint8) * 255 for i in range(nclusters)]           
+    color_image = colors[predicted_image]
+    color_image = cv2.addWeighted(img,0.35,color_image,0.65,0)
+
+    return color_image, masks
+
+def annotate_transform(image, Transform, color=(0,0,0)):
+    """
+    Annotates an image with transformation parameters (Tx, Ty, Rotation)
+    at specified location.
+
+    Parameters:
+        image (ndarray): The image array to annotate.
+        Transform (list): A list of tuples, where each tuple contains:
+                          (index, x, y, Tx, Ty, Rotation)
+                          - index: Cluster Number
+                          - x, y: Coordinates of the cluster center
+                          - Tx, Ty: Transformation values in x and y directions
+                          - Rotation: Rotation in degrees
+
+    Returns:
+        ndarray: The annotated image.
+    """
+    annotated_image = image.copy()
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.4
+    font_thickness = 1
+    index, x, y, tx, ty, rotation = Transform
+    annotation = f"{tx:.2f}\n{ty:.2f}\n{rotation:.2f}"
+    cv2.putText(annotated_image, f"{index}", (x, y-25), font, font_scale, color, font_thickness, cv2.LINE_AA)
+    cv2.putText(annotated_image, f"{tx:.2f}", (x, y-15), font, font_scale, color, font_thickness, cv2.LINE_AA)
+    cv2.putText(annotated_image, f"{ty:.2f}", (x, y), font, font_scale, color, font_thickness, cv2.LINE_AA)
+    cv2.putText(annotated_image, f"{rotation:.2f}", (x, y+15), font, font_scale, color, font_thickness, cv2.LINE_AA)
+    cv2.circle(annotated_image, (x, y), 3, color, -1)
+    return annotated_image
 
 def euclidean_distance(point1, point2):
     return np.sqrt(np.sum((np.array(point1) - np.array(point2))**2))
@@ -338,9 +421,22 @@ def create_weighted_graph(points):
         G.add_edge(i, j, weight=round(distance,3))
     return G
 
-def grad2(v):
-    a = np.array([(v[i+1] + v[i-1] - 2*v[i]) for i in range(1,len(v)-1)])
-    return a
+def plot_graph(G, save, saveAddress, fileName):
+    pos = nx.get_node_attributes(G, 'pos')
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+
+    ratios = [4 / 3]
+    figsize = [sum(ratios) * 4.5, 4.5]
+    fig, ax = plt.subplots(
+    1, 1, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
+    )
+    nx.draw(G, pos, ax=ax, with_labels=True, node_color='skyblue', node_size=700, font_size=12, font_weight='bold', edge_color='gray')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax)
+    ax.set_axis_off()
+    ax.set_title(fileName)
+    if save:
+        plt.savefig(f"{saveAddress}/{fileName}.png")
+    return fig, ax
 
 def find_direct_neighbor(G, target_node):
     neighbors = []
@@ -349,35 +445,29 @@ def find_direct_neighbor(G, target_node):
         neighbors.append(([neighbor, 1 / edge_weight if edge_weight != 0 else float('inf')]))
     return neighbors
 
-def visualize_entire_graph(G, size, show, save, outFolder):
-    pos = nx.get_node_attributes(G, 'pos')
-    edge_labels = nx.get_edge_attributes(G, 'weight')
-    if True:
-        plt.figure(figsize=(size[0],size[1]))
-        nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=700, font_size=12, font_weight='bold', edge_color='gray')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
-        if save:
-            plt.savefig(f"{outFolder}/graph.png")
 
-        plt.show(block=False)
+def conv_DCN(M):
+    p0 = np.sqrt( M[0,0] + M[1,0]*1j)
+    p1 = (M[0,2] + M[1,2]*1j)/(2*p0)
+    return DCN(p0,p1)
+
+def blend_DCN(Cs,w) -> DCN:
+    c_hat_temp = [ci.scalar_mult(wi) for wi,ci in zip(w,Cs)]
+    c_hat = sum(c_hat_temp)
+    c_hat = c_hat/c_hat.norm()
+    return c_hat
+
+
+
+
+
+
+
+
+
+
+
     
-def draw_inliers(img1, img2, kp1, kp2, mask, save, outFolder):
-    source_inlier_keypoints = [kp for kp, inlier in zip(kp1, mask) if inlier]
-    target_inlier_keypoints = [kp for kp, inlier in zip(kp2, mask) if inlier]
-    # source_image_with_inliers = cv2.drawKeypoints(source_image, source_inlier_keypoints, None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    # target_image_with_inliers = cv2.drawKeypoints(target_image, target_inlier_keypoints, None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    inliers_image = np.hstack((img1, img2))
-    for i, (src_kp, tgt_kp) in enumerate(zip(source_inlier_keypoints, target_inlier_keypoints)):
-        src_pt = (int(src_kp.pt[0]), int(src_kp.pt[1]))
-        tgt_pt = (int(tgt_kp.pt[0]), int(tgt_kp.pt[1]))
-        cv2.circle(img1, src_pt, 5, (255, 0, 0), -1)
-        cv2.circle(img2, tgt_pt, 5, (255, 0, 0), -1)
-        cv2.line(inliers_image, (src_pt[0], src_pt[1]), (tgt_pt[0] + img1.shape[1], tgt_pt[1]), (255, 0, 0), 1)
-    plt.imshow(inliers_image)
-
-    if save:
-        plt.imsave(f"{outFolder}/inliers.jpg", inliers_image)
-    plt.show(block=False)
 
 
 

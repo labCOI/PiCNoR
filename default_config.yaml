@@ -14,8 +14,9 @@ registration:
   global: true # Register Globally
   retry_numbers: 10 # Number of retries if Global Registration failed
   fine: true # Register with clusters
-  num_clusters: "auto"  # Number of clusters: "auto" or a specific number
-
+  max_clusters: 24 # Maximum Numebr of clusters
+  num_clusters: 6  # Number of clusters: "auto" or a specific number
+  valid_range_weight: 0.4
 matching:
   matcher_type: "L2"  # Matcher algorithm: "L2", "Hamming", "Light"
   

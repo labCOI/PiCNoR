@@ -23,7 +23,7 @@ def main():
     short_logger = CustomLogger(name="",log_file=os.path.join(directory, "short_log.log"))
     if config.type == "Pair":
         full_logger.message("Starting Pairwise Registration")
-        regPair(source=config.source_image,
+        _, viewer, final = regPair(source=config.source_image,
                 target=config.target_image,
                 outFolder=config.output_folder,
                 colorScale=config.color_scale,
@@ -33,12 +33,15 @@ def main():
                 globalreg=config.global_registration,
                 numtry=config.num_try,
                 finereg=config.fine_registration,
+                valid_weight=config.valid_weight,
                 matcher=config.matcher_type,
                 nclusters=config.num_clusters,
+                max_clusers=config.max_clusters,
                 save=config.save_results,
                 fix=config.apply_fix,
                 show=config.show_results,
                 logger=(full_logger,short_logger))
+        viewer.mainloop()
     elif config.type == "Dir":
         nclusters = None
         full_logger.message(f"Starting Directory Registration")
