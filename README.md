@@ -22,38 +22,29 @@ This Python script performs keypoint extraction, matching, and transformation be
 ## Usage
 1. Open a terminal or command prompt.
 2. Navigate to the project directory.
+3. Create a new config file or use the default one.
 3. Run the script with the necessary arguments:
     ```sh
-    python main.py --source <source-image-path> --target <target-image-path> --out <output-folder> --nclusters <number-of-clusters> [options]
+    python main.py --config <yaml-config-path> [options]
     ```
-
-### Arguments
-- `--type`: Type of operation (`Pair` for individual pairs, `Dir` for directories). Default is `Pair`.
-- `--source`: Path to the source image or directory.
-- `--target`: Path to the target image.
-- `--out`: Path to the output folder.
-- `--color`: Color scale to use (`RGB` or `Gray`). Default is `RGB`.
-- `--detector`: Detector to use (`SIFT`, `AKAZE`, `SUPER`). Default is `AKAZE`.
-- `--threshold`: Detector threshold. Default is `0.0001`.
-- `--maxkps`: Superpoint Maximum number of features. Default is `2048`.
-- `--matcher`: Matcher to use (`L2`, `Hamming`, `Light`). Default is `L2`. (Use `SUPER` with `Light`)
-- `--nclusters`: Number of clusters.
-- `--save`: Save outputs (flag).
-- `--show`: Show outputs (flag).
-- `--fix`: Fix outputs (flag).
 
 ### Example
 ```sh
-python main.py --type Pair --source path/to/source.jpg --target path/to/target.jpg --out path/to/output --color RGB --detector AKAZE --threshold 0.0001 --matcher L2 --nclusters 5 --save --show --fix
+python main.py --config default_config.yaml
 ```
 
 ## Project Structure
 ```
 .
-├── main.py        # The main script file
-├── utils.py       # Utility functions used in the script
-├── .gitignore     # Git ignore file
-└── README.md      # This README file
+├── main.py                 # The main script file
+├── utils.py                # Utility functions used in the script
+├── config.py               # Loading config file
+├── customlogger.py         # Two types of custom Logging
+├── PlotViewer.py           # TKinter GUI to view plots
+├── registration.py         # Registration Pipeline
+├── default_config.yaml     # Default Config file to run.
+├── .gitignore              # Git ignore file
+└── README.md               # This README file
 ```
 
 ## Custom Directories
@@ -63,4 +54,4 @@ The following directories are excluded from the repository using the `.gitignore
 - `Outputs/`
 
 ## Logging
-The script generates a log file `script_log.log` in the specified output directory, which contains detailed logs of the processing steps and any issues encountered.
+The script generates two log files `full_log.log` and `short_log.log` in the specified output directory, which contains detailed logs of the processing steps and any issues encountered.
