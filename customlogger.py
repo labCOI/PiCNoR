@@ -42,7 +42,7 @@ class CustomLogger(logging.Logger):
         np.set_printoptions(precision=3, suppress=True, linewidth=100)
         
         tx, ty = M[0, 2], M[1, 2]
-        rotation = np.degrees(np.abs(np.arccos(M[0, 0])))
+        rotation = np.degrees((np.arccos(M[0, 0])))
         if index != -1:
             log_message = (
                 f"\nCluster {index}:\n"
@@ -56,6 +56,8 @@ class CustomLogger(logging.Logger):
             )
         self.info(log_message)
 
+    def log_section_divider(self):
+        self.info("-" * 40)
 
 class CustomFullLogger(logging.Logger):
     def __init__(self, name, log_file, level=logging.INFO):
@@ -104,7 +106,7 @@ class CustomFullLogger(logging.Logger):
         
         M_formatted = np.array2string(M, formatter={'float_kind':lambda x: f"{x:10.5f}"})
         tx, ty = M[0, 2], M[1, 2]
-        rotation = np.degrees(np.abs(np.arccos(M[0, 0])))
+        rotation = np.degrees((np.arccos(M[0, 0])))
         if index != -1:
             log_message = (
                 f"Cluster {index}:\n"
@@ -119,3 +121,6 @@ class CustomFullLogger(logging.Logger):
                 f"Inliers: {np.sum(inlierIndex)}"
             )
         self.info(log_message)
+ 
+    def log_section_divider(self):
+        self.info("-" * 40)

@@ -62,8 +62,12 @@ def overlay(img1,img2):
         raise ValueError("The two images are not the same size.")
     height, width = img1.shape[:2]
     composite = np.zeros((height, width, 3), dtype=np.uint8)
-    img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    img2_gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    if len (img1.shape) == 3:
+        img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        img2_gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    else:
+        img1_gray = img1.copy()
+        img2_gray = img2.copy()
     composite[..., 0] = img1_gray  # Red channel
     composite[..., 1] = img2_gray  # Green channel
     composite[..., 2] = img2_gray  # Blue channel

@@ -2,15 +2,16 @@ import tkinter as tk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
-import numpy as np
 import matplotlib
+import pickle
+import os
 
 matplotlib.use('TkAgg')
 
 class PlotViewer(tk.Tk):
-    def __init__(self):
+    def __init__(self, title="Figure Viewer"):
         super().__init__()
-        self.title("Figure Viewer")
+        self.title(title)
         self.geometry("800x600")
         self.figures = []
         self.index = -1
@@ -60,3 +61,18 @@ class PlotViewer(tk.Tk):
         plt.close('all')
         self.quit()
         self.destroy()
+
+    def save_configuration(self, add, name='plot_config'):
+        with open(os.path.join(add,f"{name}.pkl"), 'wb') as f:
+            pickle.dump(self.figures, f)
+        print("Configuration saved.")
+
+    def load_configuration(self, add, name='plot_config'):
+        try:
+            with open(os.path.join(add,f"{name}.pkl"), 'rb') as f:
+                self.figures = pickle.load(f)
+            self.index = 0
+            self.show_figure()
+            print("Configuration loaded.")
+        except FileNotFoundError:
+            print("Configuration file not found.")

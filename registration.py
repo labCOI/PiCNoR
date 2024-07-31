@@ -43,8 +43,9 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
     Number of Used Clusters.
     """
 
-
-    viewer = PlotViewer()
+    viewer = None
+    if show:
+        viewer = PlotViewer()
     random_seed = 3
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
@@ -80,12 +81,14 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                        f"Target Shape: {target_image.shape}")
    
     # Initial Overlay
+    
     fig, ax = plot_overlay(source=source_image,
-                   target=target_image,
-                   save=save,
-                   saveAddress=outFolder,
-                   fileName="InitialOverlay")
-    viewer.add_figure(fig)
+                    target=target_image,
+                    save=save,
+                    saveAddress=outFolder,
+                    fileName="InitialOverlay")
+    if show:    
+        viewer.add_figure(fig)
 
     # Initializing Detector
     if detector == "SIFT":
@@ -142,11 +145,12 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
         src_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_source ]).reshape(-1,2) #i1
         dst_pts = np.uint([ [k.pt[0],k.pt[1]] for k in keypoints_target ]).reshape(-1,2) #i2
         fig, ax = plot_keypoints(images=(i1,i2), 
-                                 keypoints=(src_pts, dst_pts), 
-                                 save=save, 
-                                 saveAddress=outFolder,
-                                 fileName="GlobalKeypoints")
-        viewer.add_figure(fig)
+                                    keypoints=(src_pts, dst_pts), 
+                                    save=save, 
+                                    saveAddress=outFolder,
+                                    fileName="GlobalKeypoints")
+        if show:    
+            viewer.add_figure(fig)
 
         # Matching
         if matcher in ["L2", "Hamming"]:
@@ -174,71 +178,83 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
         src_pts = np.float32([ keypoints_source[m.queryIdx].pt for m in matches ]).reshape(-1,2) #i1 
         dst_pts = np.float32([ keypoints_target[m.trainIdx].pt for m in matches ]).reshape(-1,2) #i2
         fig, ax = plot_matches(images=(i1,i2),
-                               keypoints=(src_pts, dst_pts), 
-                               save=save, 
-                               saveAddress=outFolder,
-                               color='lime',
-                               fileName="GlobalMatches")
-        viewer.add_figure(fig)
+                                keypoints=(src_pts, dst_pts), 
+                                save=save, 
+                                saveAddress=outFolder,
+                                color='lime',
+                                fileName="GlobalMatches")
+        if show:    
+            viewer.add_figure(fig)
 
         # Global Transform
         full_logger.message(f"Finding Global Transform")
+        glob_av = False
         for trynumber in range(numtry):
             model_robust, inlierIndex = ransac((src_pts, dst_pts), EuclideanTransform, min_samples=3,
                                             residual_threshold=9, max_trials=2000)
             full_logger.message(f"Try Number {trynumber}, Inliers: {np.sum(inlierIndex)}")
             if np.sum(inlierIndex) > 50:
+                glob_av = True
                 break
         else:
-            full_logger.log_error("Global Registration Failed")
-            short_logger.log_error("Global Registration Failed")
-            raise ValueError("Can not find Global Registration Transform")
+            full_logger.log_error("Global Registration Failed, Moving to Fine")
+            short_logger.log_error("Global Registration Failed, Moving to fine")
+            source_image = source_image.copy()
+            target_image = target_image.copy()
+            # raise ValueError("Can not find Global Registration Transform")
         
-        M = model_robust.params
-        full_logger.log_transform_info(-1, M, inlierIndex)
-        short_logger.log_transform_info(-1, M, inlierIndex)
-        src_pts = np.float32([kp for kp, inlier in zip(src_pts, inlierIndex) if inlier]).reshape(-1,2) #i1 
-        dst_pts = np.float32([kp for kp, inlier in zip(dst_pts, inlierIndex) if inlier]).reshape(-1,2) #i1 
-        fig, ax = plot_matches(images=(i1,i2),
-                               keypoints=(src_pts, dst_pts), 
-                               save=save, 
-                               saveAddress=outFolder,
-                               color='tomato',
-                               fileName="GlobalInliers")
-        viewer.add_figure(fig)
+        if glob_av:
+            M = model_robust.params
+            full_logger.log_transform_info(-1, M, inlierIndex)
+            short_logger.log_transform_info(-1, M, inlierIndex)
+            src_pts = np.float32([kp for kp, inlier in zip(src_pts, inlierIndex) if inlier]).reshape(-1,2) #i1 
+            dst_pts = np.float32([kp for kp, inlier in zip(dst_pts, inlierIndex) if inlier]).reshape(-1,2) #i1
+            fig, ax = plot_matches(images=(i1,i2),
+                                    keypoints=(src_pts, dst_pts), 
+                                    save=save, 
+                                    saveAddress=outFolder,
+                                    color='tomato',
+                                    fileName="GlobalInliers")
+            if show:    
+                viewer.add_figure(fig)
 
-        # Applying Global Transform
-        source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
-        if fix:
-            _, mask = cv2.threshold(source_transformed, 1, 255, cv2.THRESH_BINARY)
-            mask_inv = cv2.bitwise_not(mask)
-            kernel = np.ones((3, 3), np.uint8)
-            mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
-            source_transformed[mask_inv_dilated == 255] = [255]
-        fig, ax = plot_image(img=source_transformed, 
-                             save=save,
-                             saveAddress=outFolder,
-                             fileName="SourceTransformed")
-        etime = datetime.now()
-        fig, ax = plot_3image(images=(source_image,source_transformed, target_image),
-                              save=False,
-                              saveAddress=outFolder,
-                              fileName="SourceTarget")
-        viewer.add_figure(fig)
-        fig, ax = plot_overlay(source=source_transformed,
-                               target=target_image,
-                               save=False,
-                               saveAddress=outFolder,
-                               fileName="GlobalOverlay")
-        viewer.add_figure(fig)
-        full_logger.message(f"Global registration Done")
-        full_logger.message(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
-                         f"elapsed time: {(etime-stime).total_seconds()}")
-        short_logger.message(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
-                          f"elapsed time: {(etime-stime).total_seconds()}")
-        
-        source_image = source_transformed.copy()
-        target_image = target_image.copy()
+            # Applying Global Transform
+            source_transformed = cv2.warpPerspective(source_image, M, (i2.shape[1],i2.shape[0]),flags=cv2.INTER_LINEAR)
+            if fix:
+                _, mask = cv2.threshold(source_transformed, 1, 255, cv2.THRESH_BINARY)
+                mask_inv = cv2.bitwise_not(mask)
+                kernel = np.ones((3, 3), np.uint8)
+                mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
+                source_transformed[mask_inv_dilated == 255] = [255]
+            fig, ax = plot_image(img=source_transformed, 
+                                    save=save,
+                                    saveAddress=outFolder,
+                                    fileName="SourceTransformed")
+            if show:    
+                viewer.add_figure(fig)
+            fig, ax = plot_3image(images=(source_image,source_transformed, target_image),
+                                    save=False,
+                                    saveAddress=outFolder,
+                                    fileName="SourceTarget")
+            if show:    
+                viewer.add_figure(fig)
+            fig, ax = plot_overlay(source=source_transformed,
+                                    target=target_image,
+                                    save=False,
+                                    saveAddress=outFolder,
+                                    fileName="GlobalOverlay")
+            if show:    
+                viewer.add_figure(fig)
+            etime = datetime.now()
+
+            full_logger.message(f"Global registration Done")
+            full_logger.message(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
+                            f"elapsed time: {(etime-stime).total_seconds()}")
+            short_logger.message(f"SSD Globally registered image pairs: {ssd(source_transformed,target_image)}\n"
+                            f"elapsed time: {(etime-stime).total_seconds()}")
+            
+            source_image = source_transformed.copy()
+            target_image = target_image.copy()
 
     # Fine Registration
     if finereg:
@@ -282,13 +298,14 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
             full_logger.message(f"BIC Values:{bics}\n"
                                 f"max curvature: {max_curvature_idx}")
             fig, ax = plot_bics(n_vector=n_components,
-                                bic_vector=bics,
-                                bic_grad_vector=grad2(bics),
-                                index=max_curvature_idx,
-                                save=save,
-                                saveAddress=outFolder,
-                                fileName="BayesianInformationCriterion")
-            viewer.add_figure(fig)
+                                    bic_vector=bics,
+                                    bic_grad_vector=grad2(bics),
+                                    index=max_curvature_idx,
+                                    save=save,
+                                    saveAddress=outFolder,
+                                    fileName="BayesianInformationCriterion")
+            if show:    
+                viewer.add_figure(fig)
             nclusters = n_components[max_curvature_idx+1]
             full_logger.message(f"Optimal Cluster Numbers: {nclusters}")
             short_logger.message(f"Optimal Cluster Numbers: {nclusters}")
@@ -417,11 +434,11 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 x,y = int(cluster_centers[index][0]), int(cluster_centers[index][1])
                 if valid_centers[index]==1:
                     gmm_map = annotate_transform(image=gmm_map,
-                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees(np.abs(np.arccos(M[0,0])))],
+                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
                                                  color=(255,255,255))
                 else:
                     gmm_map = annotate_transform(image=gmm_map,
-                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees(np.abs(np.arccos(M[0,0])))],
+                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
                                                  color=(0,0,0))
         else:
             for index, mask in enumerate(masks):
@@ -468,17 +485,18 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 x,y = int(cluster_centers[index][0]), int(cluster_centers[index][1])
                 if valid_centers[index]==1:
                     gmm_map = annotate_transform(image=gmm_map,
-                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees(np.abs(np.arccos(M[0,0])))],
+                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
                                                  color=(255,255,255))
                 else:
                     gmm_map = annotate_transform(image=gmm_map,
-                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees(np.abs(np.arccos(M[0,0])))],
+                                                 Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
                                                  color=(0,0,0))
         fig, ax = plot_image(img=gmm_map,
-                             save=save,
-                             saveAddress=outFolder,
-                             fileName="GMMOverlayAll")
-        viewer.add_figure(fig)
+                                save=save,
+                                saveAddress=outFolder,
+                                fileName="GMMOverlayAll")
+        if show:
+            viewer.add_figure(fig)
 
         # fixing invalid transforms
         finalTransforms = Transforms.copy()
@@ -492,10 +510,11 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
             points = np.array(gmm.means_)/np.array([source_image.shape[1],source_image.shape[0]])
             G = create_weighted_graph(points)
             fig, ax = plot_graph(G=G,
-                                 save=save,
-                                 saveAddress=outFolder,
-                                 fileName="ClusterGraph")
-            viewer.add_figure(fig)
+                                    save=save,
+                                    saveAddress=outFolder,
+                                    fileName="ClusterGraph")
+            if show:
+                viewer.add_figure(fig)
             for index, center in enumerate(gmm.means_):
                 if valid_centers[index] == 0:
                     replacements = find_direct_neighbor(G, index)
@@ -512,7 +531,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 M = finalTransforms[index]
                 x,y = int(cluster_centers[index][0]), int(cluster_centers[index][1])
                 gmm_map_final = annotate_transform(image=gmm_map_final,
-                                            Transform=[index, x, y, M[0,2], M[1,2], np.degrees(np.abs(np.arccos(M[0,0])))],
+                                            Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
                                                 color=(255,255,255))
                 full_logger.log_transform_info(index= index,
                                                M = M,
@@ -521,10 +540,11 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                                                M = M,
                                                inlierIndex=[0])
             fig, ax = plot_image(img=gmm_map_final,
-                             save=save,
-                             saveAddress=outFolder,
-                             fileName="GMMOverlayFixed")
-            viewer.add_figure(fig)
+                                save=save,
+                                saveAddress=outFolder,
+                                fileName="GMMOverlayFixed")
+            if show:
+                viewer.add_figure(fig)
         # Blending Trasnforms
         stime = datetime.now()
         full_logger. message(f"Starting to blend transforms")
@@ -556,24 +576,28 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
             kernel = np.ones((3, 3), np.uint8)
             mask_inv_dilated = cv2.dilate(mask_inv, kernel, iterations=1)
             source_image_fine[mask_inv_dilated == 255] = [255]
+        
         fig, ax = plot_image(img=source_image_fine,
-                             save=save,
-                             saveAddress=outFolder,
-                             fileName="FinalImage")
-        viewer.add_figure(fig)
+                                save=save,
+                                saveAddress=outFolder,
+                                fileName="FinalImage")
+        if show:
+            viewer.add_figure(fig)
 
         fig, ax = plot_3image(images=(source_image, source_image_fine, target_image),
-                              save=save,
-                              saveAddress=outFolder,
-                              fileName="FinalTarget")
-        viewer.add_figure(fig)
+                                save=save,
+                                saveAddress=outFolder,
+                                fileName="FinalTarget")
+        if show:    
+            viewer.add_figure(fig)
 
         fig, ax = plot_overlay(source=source_image_fine,
-                               target=target_image,
-                               save=save,
-                               saveAddress=outFolder,
-                               fileName="FinalOverlay")
-        viewer.add_figure(fig)
+                                target=target_image,
+                                save=save,
+                                saveAddress=outFolder,
+                                fileName="FinalOverlay")
+        if show:    
+            viewer.add_figure(fig)
 
         etime = datetime.now()
         full_logger.message(f"SSD Fine registered image pairs: {ssd(source_image_fine,target_image)}\n"
