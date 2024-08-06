@@ -386,6 +386,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 keypoints_target_mask = tuple(
                 [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
                 )
+                lightmatcher = LightGlue(features="superpoint").eval().to(device)
                 matches01 = lightmatcher({"image0": source_feats, "image1": target_feats})
                 matches01 = [
                 rbd(x) for x in [matches01]
@@ -444,6 +445,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
             for index, mask in enumerate(masks):
                 keypoints_source_mask, descriptors_source_mask = detector.detectAndCompute(source_image,mask)
                 keypoints_target_mask, descriptors_target_mask = detector.detectAndCompute(target_image,mask)
+                bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
                 matches = bf.match(descriptors_source_mask,descriptors_target_mask)
                 matches = sorted(matches, key = lambda x:x.distance)
                 src_pts_cluster = np.float32([ keypoints_source_mask[m.queryIdx].pt for m in matches ]).reshape(-1,2)

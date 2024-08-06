@@ -2,7 +2,7 @@ operation:
   type: "Dir"  # Operation mode: "Pair" for pairwise or "Dir" for directory processing
   source_image: "DataWang/1/"  # Path to the source image
   target_image: ""  # Path to the target image (if type is Pair)
-  output_folder: "NewOutputs/wang1/"  # Path to the folder where results will be saved
+  output_folder: "NewOutputs/wang/"  # Path to the folder where results will be saved
 
 image_processing:
   color_scale: "RGB"  # Color scale: "RGB" or "Gray"
@@ -11,14 +11,14 @@ image_processing:
   max_keypoints: 2048  # Maximum number of keypoints (specific to some detectors like SUPER)
 
 registration:
-  global: true # Register Globally
+  global: false # Register Globally
   retry_numbers: 10 # Number of retries if Global Registration failed
   fine: true # Register with clusters
   max_clusters: 24 # Maximum Numebr of clusters
-  num_clusters: "auto"  # Number of clusters: "auto" or a specific number
+  num_clusters: 'auto'  # Number of clusters: "auto" or a specific number
   valid_range_weight: 0.2
 matching:
-  matcher_type: "L2"  # Matcher algorithm: "L2", "Hamming", "Light"
+  matcher_type: "Hamming"  # Matcher algorithm: "L2", "Hamming", "Light"
   
 output_settings:
   save_results: true  # Whether to save the output results
