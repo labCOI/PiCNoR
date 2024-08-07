@@ -8,7 +8,7 @@ from skimage.transform import EuclideanTransform
 from skimage.measure import ransac
 from datetime import datetime
 from sklearn.mixture import GaussianMixture
-
+from scipy.signal import find_peaks
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd, numpy_image_to_torch, read_image
 import torch
@@ -294,22 +294,28 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 gmm.fit(data)
                 bics.append(gmm.bic(data))
                 # sils.append(silhouette_score(data,gmm.fit_predict(data)))
-            max_curvature_idx = np.argmax(np.abs(grad2(bics)))
+            
+            bics = np.array(bics)
+            g_bics = grad2(bics)
+            bic_peaks, _ = find_peaks(g_bics)
+            canditates = bic_peaks+1
+            full_logger.message(f"candidates for clusters: {n_components[canditates]}")
+            min_cand = canditates[np.argmin(bics[canditates])]
+            nclusters = n_components[min_cand]
             full_logger.message(f"BIC Values:{bics}\n"
-                                f"max curvature: {max_curvature_idx}")
+                                f"Selected Point: {min_cand}")
             fig, ax = plot_bics(n_vector=n_components,
                                     bic_vector=bics,
                                     bic_grad_vector=grad2(bics),
-                                    index=max_curvature_idx,
+                                    mark=nclusters,
                                     save=save,
                                     saveAddress=outFolder,
                                     fileName="BayesianInformationCriterion")
             if show:    
                 viewer.add_figure(fig)
-            nclusters = n_components[max_curvature_idx+1]
+            
             full_logger.message(f"Optimal Cluster Numbers: {nclusters}")
             short_logger.message(f"Optimal Cluster Numbers: {nclusters}")
-
         full_logger.message(f"Fitting GMM to {nclusters} Clusters")
         short_logger.message(f"clusters: {nclusters}")
         nclusters = int(nclusters)
@@ -347,10 +353,10 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
             f1, f2 = [
                 rbd(x) for x in [feats1, feats2]
             ]
-            keypoints_source = f1["keypoints"].numpy()
-            keypoints_target = f2["keypoints"].numpy()
-            descriptors_source = f1['descriptors'].numpy()
-            descriptors_target = f2['descriptors'].numpy()
+            keypoints_source = f1["keypoints"].cpu().numpy()
+            keypoints_target = f2["keypoints"].cpu().numpy()
+            descriptors_source = f1['descriptors'].cpu().numpy()
+            descriptors_target = f2['descriptors'].cpu().numpy()
 
             keypoints_indices_source = keypoints_source.astype(int)
             keypoints_indices_target = keypoints_target.astype(int)
@@ -368,7 +374,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 source_feats["descriptors"] = f1["descriptors"][source_indices]
                 source_feats["image_size"] = f1["image_size"]
                 source_feats = add_batch_dimension(source_feats)
-                kp_temp = source_feats["keypoints"].numpy()[0]
+                kp_temp = source_feats["keypoints"].cpu().numpy()[0]
                 keypoints_source_mask = tuple(
                 [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
                 )
@@ -382,7 +388,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 target_feats["descriptors"] = f2["descriptors"][target_indices]
                 target_feats["image_size"] = f2["image_size"]
                 target_feats = add_batch_dimension(target_feats)
-                kp_temp = target_feats["keypoints"].numpy()[0]
+                kp_temp = target_feats["keypoints"].cpu().numpy()[0]
                 keypoints_target_mask = tuple(
                 [cv2.KeyPoint(x=int(k[0]),y=int(k[1]),size=1) for k in kp_temp]
                 )
@@ -391,7 +397,7 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                 matches01 = [
                 rbd(x) for x in [matches01]
                 ][0]
-                match_temp = matches01["matches"].numpy().copy()
+                match_temp = matches01["matches"].cpu().numpy().copy()
                 matches = [
                 cv2.DMatch(_queryIdx=match[0],_trainIdx=match[1], _distance=1) for match in match_temp
                 ]
@@ -423,11 +429,11 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                             valid_centers[index] = 0
                     else:
                         full_logger.log_error(f"cluster {index} Transform not found!")
-                        model_robust.params
+                        M = np.eye(3,3)
                         inlierIndex = [False * src_pts_cluster.shape[0]]
                 except ValueError as ve:
                     full_logger.log_error(f"cluster {index} Transform not found!")
-                    model_robust.params
+                    M = np.eye(3,3)
                     inlierIndex = [False * src_pts_cluster.shape[0]]
 
                 Transforms.append(M)

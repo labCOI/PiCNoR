@@ -321,7 +321,7 @@ def grad2(v):
     a = np.array([(v[i+1] + v[i-1] - 2*v[i]) for i in range(1,len(v)-1)])
     return a
 
-def plot_bics(n_vector,bic_vector, bic_grad_vector, index, save, saveAddress, fileName):
+def plot_bics(n_vector,bic_vector, bic_grad_vector, mark, save, saveAddress, fileName):
     """
     show and save BIC vectors with its gradient
 
@@ -329,6 +329,7 @@ def plot_bics(n_vector,bic_vector, bic_grad_vector, index, save, saveAddress, fi
         n_vector: x-axis vector,
         bic_vector: vector containing bic values,
         bic_grad_vector: vector containing bic gradient values,
+        mark: max value,
         save: boolean to allow saving,
         saveAddress: saving directory,
         fileName: file name for saving
@@ -341,14 +342,17 @@ def plot_bics(n_vector,bic_vector, bic_grad_vector, index, save, saveAddress, fi
     fig, ax = plt.subplots(
     1, 2, figsize=figsize, dpi=100, gridspec_kw={"width_ratios": ratios}
     )
+    
     # BIC
+    index = np.where(n_vector == mark)[0]
     ax[0].plot(n_vector,bic_vector,'bo-',markersize=5)
     ax[0].set_xlim([1, 20])
     ax[0].get_xaxis().set_ticks(n_vector)
     ax[0].set_title("BIC")    
-    ax[0].plot(n_vector[index+1], bic_vector[index+1], 'ro', markersize=7)
+    ax[0].plot(n_vector[index], bic_vector[index], 'ro', markersize=7)
     
     # BIC Grad
+    index = np.where(n_vector[1:-1] == mark)[0]
     ax[1].plot(n_vector[1:-1],bic_grad_vector,'go-',markersize=3)
     ax[1].set_xlim([1, 20])
     ax[1].get_xaxis().set_ticks(n_vector)
@@ -472,7 +476,7 @@ def createFinalOutputs(sFolder, dFolder, nFiles):
 
     for folder_name in range(nFiles):
         current_folder = os.path.join(sFolder, str(folder_name))
-        source_file = os.path.join(current_folder, 'SourceTransformed_fineT.jpg')
+        source_file = os.path.join(current_folder, 'FinalImage.png')
         new_file_name = f'{folder_name}.jpg'
         destination_file = os.path.join(dFolder, new_file_name)
         if os.path.isfile(source_file):
