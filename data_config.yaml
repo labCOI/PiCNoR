@@ -1,8 +1,8 @@
 operation:
-  type: "Pair"  # Operation mode: "Pair" for pairwise or "Dir" for directory processing
-  source_image: "MouseBrain_down/132.jpg"  # Path to the source image
-  target_image: "MouseBrain_down/133.jpg"  # Path to the target image (if type is Pair)
-  output_folder: "NewOutputs/own_data/SUPER_AUTO/130_ng"  # Path to the folder where results will be saved
+  type: "Dir"  # Operation mode: "Pair" for pairwise or "Dir" for directory processing
+  source_image: "MouseBrain_down/series"  # Path to the source image
+  target_image: ""  # Path to the target image (if type is Pair)
+  output_folder: "NewOutputs/own_data_series/SUPER_AUTO_REV"  # Path to the folder where results will be saved
 
 image_processing:
   color_scale: "RGB"  # Color scale: "RGB" or "Gray"
@@ -11,6 +11,7 @@ image_processing:
   max_keypoints: 2048  # Maximum number of keypoints (specific to some detectors like SUPER)
 
 registration:
+  start: 0
   global: false # Register Globally
   retry_numbers: 10 # Number of retries if Global Registration failed
   fine: true # Register with clusters
@@ -22,5 +23,5 @@ matching:
   
 output_settings:
   save_results: true  # Whether to save the output results
-  show_results: true  # Whether to display the output results
+  show_results: false  # Whether to display the output results
   apply_fix: false  # Whether to apply a fixing step to the outputs

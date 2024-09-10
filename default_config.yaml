@@ -11,6 +11,7 @@ image_processing:
   max_keypoints: 2048  # Maximum number of keypoints (specific to some detectors like SUPER)
 
 registration:
+  start: 0
   global: false # Register Globally
   retry_numbers: 10 # Number of retries if Global Registration failed
   fine: true # Register with clusters

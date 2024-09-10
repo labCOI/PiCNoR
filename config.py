@@ -21,6 +21,7 @@ class Config:
 
         # Registration settings
         registration = config.get('registration', {})
+        self.start = registration.get('start', 0)
         self.global_registration = registration.get('global', True)
         self.num_try = registration.get('retry_numbers', 10)
         self.fine_registration = registration.get('fine', True)

@@ -481,11 +481,11 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                             valid_centers[index] = 0
                     else:
                         full_logger.log_error(f"cluster {index} Transform not found!")
-                        M = model_robust.params
+                        M = np.eye(3,3)
                         inlierIndex = [False * src_pts_cluster.shape[0]]
                 except ValueError as ve:
                     full_logger.log_error(f"cluster {index} Transform not found!")
-                    M = model_robust.params
+                    M = np.eye(3,3)
                     inlierIndex = [False * src_pts_cluster.shape[0]]
                 
                 Transforms.append(M)
@@ -523,36 +523,37 @@ def regPair(source, target,colorScale, outFolder, detector, threshold, maxkps, g
                                     fileName="ClusterGraph")
             if show:
                 viewer.add_figure(fig)
-            for index, center in enumerate(gmm.means_):
-                if valid_centers[index] == 0:
-                    replacements = find_direct_neighbor(G, index)
-                    correct_replacements = []
-                    for i, r in enumerate(replacements):
-                        if valid_centers[r[0]] != 0:
-                            correct_replacements.append(replacements[i])
-                    full_logger.message(f"Cluster {index} is replaced by valid neighbors: {[i for i,r in correct_replacements]}")
-                    selected_Transforms = [Transforms_DCN[i] for i,r in correct_replacements]
-                    weights = [r for i, r in correct_replacements]
-                    weights = weights/sum(weights)
-                    finalTransforms_DCN[index] = blend_DCN(selected_Transforms, weights)
-                    finalTransforms[index] = finalTransforms_DCN[index].toTransform()
-                M = finalTransforms[index]
-                x,y = int(cluster_centers[index][0]), int(cluster_centers[index][1])
-                gmm_map_final = annotate_transform(image=gmm_map_final,
-                                            Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
-                                                color=(255,255,255))
-                full_logger.log_transform_info(index= index,
-                                               M = M,
-                                               inlierIndex=[0])
-                short_logger.log_transform_info(index= index,
-                                               M = M,
-                                               inlierIndex=[0])
-            fig, ax = plot_image(img=gmm_map_final,
-                                save=save,
-                                saveAddress=outFolder,
-                                fileName="GMMOverlayFixed")
-            if show:
-                viewer.add_figure(fig)
+            if 1 in valid_centers:
+                for index, center in enumerate(gmm.means_):
+                    if valid_centers[index] == 0:
+                        replacements = find_direct_neighbor(G, index)
+                        correct_replacements = []
+                        for i, r in enumerate(replacements):
+                            if valid_centers[r[0]] != 0:
+                                correct_replacements.append(replacements[i])
+                        full_logger.message(f"Cluster {index} is replaced by valid neighbors: {[i for i,r in correct_replacements]}")
+                        selected_Transforms = [Transforms_DCN[i] for i,r in correct_replacements]
+                        weights = [r for i, r in correct_replacements]
+                        weights = weights/sum(weights)
+                        finalTransforms_DCN[index] = blend_DCN(selected_Transforms, weights)
+                        finalTransforms[index] = finalTransforms_DCN[index].toTransform()
+                    M = finalTransforms[index]
+                    x,y = int(cluster_centers[index][0]), int(cluster_centers[index][1])
+                    gmm_map_final = annotate_transform(image=gmm_map_final,
+                                                Transform=[index, x, y, M[0,2], M[1,2], np.degrees((np.arccos(M[0,0])))],
+                                                    color=(255,255,255))
+                    full_logger.log_transform_info(index= index,
+                                                M = M,
+                                                inlierIndex=[0])
+                    short_logger.log_transform_info(index= index,
+                                                M = M,
+                                                inlierIndex=[0])
+                fig, ax = plot_image(img=gmm_map_final,
+                                    save=save,
+                                    saveAddress=outFolder,
+                                    fileName="GMMOverlayFixed")
+                if show:
+                    viewer.add_figure(fig)
         # Blending Trasnforms
         stime = datetime.now()
         full_logger. message(f"Starting to blend transforms")
