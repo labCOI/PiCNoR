@@ -58,3 +58,25 @@ The following directories are excluded from the repository using the `.gitignore
 ## Logging
 The script generates two log files `full_log.log` and `short_log.log` in the specified output directory, which contains detailed logs of the processing steps and any issues encountered.
 
+## Licensing
+This dataset is licensed under the **Creative Commons Attribution 4.0 International (CC BY 4.0)** license. You are free to:
+
+- **Share**: Copy and redistribute the material in any medium or format.
+- **Adapt**: Remix, transform, and build upon the material for any purpose, even commercially.
+
+**Under the following terms:**
+
+- **Attribution**: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+
+For details, see the full license text here: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+
+## Citation
+The result are going to be submitted to IEEE transactions on Computational Imaging. Citation will be available after submission.
+
+## Contact
+For any questions or issues regarding this dataset, please contact:
+- **Name**: Parsa Mojarad Adi
+- **Email**: parsa.78.99@gmail.com
+- **Affiliation**: Shahid Beheshti University
+
