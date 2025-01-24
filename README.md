@@ -1,10 +1,6 @@
-<<<<<<< HEAD
-# Automatic 3D Registration Method
-=======
 # PiCNoR
 PiCNoR: Pixel-wise Cluster-driven Non-rigid Registration for 3D Microscopic Volumes
 
->>>>>>> 88aeedb745f4e6c637bdbebfcbb0fb9ebcfcc1ec
 
 ## Description
 This Python script performs keypoint extraction, matching, and transformation between images. It supports processing both individual pairs of images and directories containing multiple images. The script uses SIFT, KAZE and Superpoint detectors and L2, Hamming or Lightglue matchers to align and register images, and it allows customization of parameters such as the detector type, color scale, and the number of clusters.
@@ -61,7 +57,4 @@ The following directories are excluded from the repository using the `.gitignore
 
 ## Logging
 The script generates two log files `full_log.log` and `short_log.log` in the specified output directory, which contains detailed logs of the processing steps and any issues encountered.
-<<<<<<< HEAD
-=======
 
->>>>>>> 88aeedb745f4e6c637bdbebfcbb0fb9ebcfcc1ec
